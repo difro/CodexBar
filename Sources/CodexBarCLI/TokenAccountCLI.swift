@@ -98,7 +98,8 @@ struct TokenAccountCLIContext {
                     usageDataSource: claudeSource,
                     webExtrasEnabled: false,
                     cookieSource: cookieSource,
-                    manualCookieHeader: routing.manualCookieHeader))
+                    manualCookieHeader: routing.manualCookieHeader,
+                    preferredOrganizationID: config?.sanitizedOrganizationID))
         case .cursor:
             let cookieHeader = self.manualCookieHeader(provider: provider, account: account, config: config)
             let cookieSource = self.cookieSource(provider: provider, account: account, config: config)

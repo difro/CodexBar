@@ -162,6 +162,7 @@ struct ProviderSettingsDescriptorTests {
             requestConfirmation: { _ in })
         let pickers = ClaudeProviderImplementation().settingsPickers(context: context)
         #expect(pickers.contains(where: { $0.id == "claude-usage-source" }))
+        #expect(pickers.contains(where: { $0.id == "claude-organization" }))
         #expect(pickers.contains(where: { $0.id == "claude-cookie-source" }))
         let keychainPicker = try #require(pickers.first(where: { $0.id == "claude-keychain-prompt-policy" }))
         let optionIDs = Set(keychainPicker.options.map(\.id))
@@ -169,6 +170,56 @@ struct ProviderSettingsDescriptorTests {
         #expect(optionIDs.contains(ClaudeOAuthKeychainPromptMode.onlyOnUserAction.rawValue))
         #expect(optionIDs.contains(ClaudeOAuthKeychainPromptMode.always.rawValue))
         #expect(keychainPicker.isEnabled?() ?? true)
+    }
+
+    @Test
+    func `claude organization picker lists discovered orgs and keeps configured fallback`() throws {
+        let suite = "ProviderSettingsDescriptorTests-claude-organization-picker"
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defaults.removePersistentDomain(forName: suite)
+        let configStore = testConfigStore(suiteName: suite)
+        let settings = SettingsStore(
+            userDefaults: defaults,
+            configStore: configStore,
+            zaiTokenStore: NoopZaiTokenStore(),
+            syntheticTokenStore: NoopSyntheticTokenStore())
+        settings.claudePreferredOrganizationID = "org-missing"
+        settings.claudeDiscoveredOrganizations = [
+            ClaudeOrganizationChoice(id: "org-team", name: "Team Org"),
+            ClaudeOrganizationChoice(id: "org-enterprise", name: "Enterprise Org"),
+        ]
+
+        let store = UsageStore(
+            fetcher: UsageFetcher(environment: [:]),
+            browserDetection: BrowserDetection(cacheTTL: 0),
+            settings: settings)
+
+        let context = ProviderSettingsContext(
+            provider: .claude,
+            settings: settings,
+            store: store,
+            boolBinding: { keyPath in
+                Binding(
+                    get: { settings[keyPath: keyPath] },
+                    set: { settings[keyPath: keyPath] = $0 })
+            },
+            stringBinding: { keyPath in
+                Binding(
+                    get: { settings[keyPath: keyPath] },
+                    set: { settings[keyPath: keyPath] = $0 })
+            },
+            statusText: { _ in nil },
+            setStatusText: { _, _ in },
+            lastAppActiveRunAt: { _ in nil },
+            setLastAppActiveRunAt: { _, _ in },
+            requestConfirmation: { _ in })
+
+        let pickers = ClaudeProviderImplementation().settingsPickers(context: context)
+        let organizationPicker = try #require(pickers.first(where: { $0.id == "claude-organization" }))
+        let optionIDs = organizationPicker.options.map(\.id)
+        #expect(optionIDs == ["", "org-team", "org-enterprise", "org-missing"])
+        let subtitle = organizationPicker.dynamicSubtitle?() ?? ""
+        #expect(subtitle.localizedCaseInsensitiveContains("saved organization"))
     }
 
     @Test

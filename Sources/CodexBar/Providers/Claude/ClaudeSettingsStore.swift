@@ -1,6 +1,34 @@
 import CodexBarCore
 import Foundation
 
+struct ClaudeOrganizationChoice: Identifiable, Equatable, Sendable {
+    let id: String
+    let name: String?
+
+    init(id: String, name: String?) {
+        self.id = id
+        let trimmed = name?.trimmingCharacters(in: .whitespacesAndNewlines)
+        self.name = (trimmed?.isEmpty ?? true) ? nil : trimmed
+    }
+
+    var displayName: String {
+        self.name ?? self.id
+    }
+
+    static func makeChoices(from organizations: [ClaudeWebAPIFetcher.OrganizationInfo]) -> [ClaudeOrganizationChoice] {
+        var seen: Set<String> = []
+        var choices: [ClaudeOrganizationChoice] = []
+        choices.reserveCapacity(organizations.count)
+
+        for organization in organizations {
+            guard seen.insert(organization.id).inserted else { continue }
+            choices.append(ClaudeOrganizationChoice(id: organization.id, name: organization.name))
+        }
+
+        return choices
+    }
+}
+
 extension SettingsStore {
     var claudeUsageDataSource: ClaudeUsageDataSource {
         get {
@@ -44,6 +72,24 @@ extension SettingsStore {
         }
     }
 
+    var claudePreferredOrganizationID: String {
+        get { self.configSnapshot.providerConfig(for: .claude)?.sanitizedOrganizationID ?? "" }
+        set {
+            let normalized = self.normalizedConfigValue(newValue)
+            self.updateProviderConfig(provider: .claude) { entry in
+                entry.organizationID = normalized
+            }
+            self.logProviderModeChange(
+                provider: .claude,
+                field: "organizationID",
+                value: normalized ?? "auto")
+        }
+    }
+
+    func replaceClaudeDiscoveredOrganizations(_ organizations: [ClaudeWebAPIFetcher.OrganizationInfo]) {
+        self.claudeDiscoveredOrganizations = ClaudeOrganizationChoice.makeChoices(from: organizations)
+    }
+
     func ensureClaudeCookieLoaded() {}
 }
 
@@ -58,7 +104,8 @@ extension SettingsStore {
             cookieSource: self.claudeSnapshotCookieSource(tokenOverride: tokenOverride, routing: routing),
             manualCookieHeader: self.claudeSnapshotCookieHeader(
                 routing: routing,
-                hasSelectedAccount: account != nil))
+                hasSelectedAccount: account != nil),
+            preferredOrganizationID: self.normalizedConfigValue(self.claudePreferredOrganizationID))
     }
 
     private static func claudeUsageDataSource(from source: ProviderSourceMode?) -> ClaudeUsageDataSource {

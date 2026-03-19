@@ -1285,7 +1285,8 @@ extension UsageStore {
                 usageDataSource: fallbackUsageDataSource,
                 webExtrasEnabled: fallbackWebExtrasEnabled,
                 cookieSource: fallbackCookieSource,
-                manualCookieHeader: fallbackCookieHeader)
+                manualCookieHeader: fallbackCookieHeader,
+                preferredOrganizationID: nil)
             return ClaudeDebugLogConfiguration(
                 runtime: CodexBarCore.ProviderRuntime.app,
                 sourceMode: sourceMode,
@@ -1294,6 +1295,7 @@ extension UsageStore {
                 usageDataSource: claudeSettings.usageDataSource,
                 cookieSource: claudeSettings.cookieSource,
                 cookieHeader: claudeSettings.manualCookieHeader ?? "",
+                preferredOrganizationID: claudeSettings.preferredOrganizationID,
                 keepCLISessionsAlive: snapshot.debugKeepCLISessionsAlive)
         }
     }

@@ -3,6 +3,7 @@ import Foundation
 public struct ClaudeSourcePlanningInput: Equatable, Sendable {
     public let runtime: ProviderRuntime
     public let selectedDataSource: ClaudeUsageDataSource
+    public let preferredOrganizationSelected: Bool
     public let webExtrasEnabled: Bool
     public let hasWebSession: Bool
     public let hasCLI: Bool
@@ -11,6 +12,7 @@ public struct ClaudeSourcePlanningInput: Equatable, Sendable {
     public init(
         runtime: ProviderRuntime,
         selectedDataSource: ClaudeUsageDataSource,
+        preferredOrganizationSelected: Bool = false,
         webExtrasEnabled: Bool,
         hasWebSession: Bool,
         hasCLI: Bool,
@@ -18,6 +20,7 @@ public struct ClaudeSourcePlanningInput: Equatable, Sendable {
     {
         self.runtime = runtime
         self.selectedDataSource = selectedDataSource
+        self.preferredOrganizationSelected = preferredOrganizationSelected
         self.webExtrasEnabled = webExtrasEnabled
         self.hasWebSession = hasWebSession
         self.hasCLI = hasCLI
@@ -28,6 +31,9 @@ public struct ClaudeSourcePlanningInput: Equatable, Sendable {
 public enum ClaudeSourcePlanReason: String, Equatable, Sendable {
     case explicitSourceSelection = "explicit-source-selection"
     case appAutoPreferredOAuth = "app-auto-preferred-oauth"
+    case appAutoPreferredWebSelectedOrganization = "app-auto-preferred-web-selected-organization"
+    case appAutoFallbackOAuthSelectedOrganization = "app-auto-fallback-oauth-selected-organization"
+    case appAutoFallbackCLISelectedOrganization = "app-auto-fallback-cli-selected-organization"
     case appAutoFallbackCLI = "app-auto-fallback-cli"
     case appAutoFallbackWeb = "app-auto-fallback-web"
     case cliAutoPreferredWeb = "cli-auto-preferred-web"
@@ -173,11 +179,19 @@ public enum ClaudeSourcePlanner {
         case .auto:
             switch input.runtime {
             case .app:
-                [
-                    self.step(.oauth, reason: .appAutoPreferredOAuth, input: input),
-                    self.step(.cli, reason: .appAutoFallbackCLI, input: input),
-                    self.step(.web, reason: .appAutoFallbackWeb, input: input),
-                ]
+                if input.preferredOrganizationSelected {
+                    [
+                        self.step(.web, reason: .appAutoPreferredWebSelectedOrganization, input: input),
+                        self.step(.oauth, reason: .appAutoFallbackOAuthSelectedOrganization, input: input),
+                        self.step(.cli, reason: .appAutoFallbackCLISelectedOrganization, input: input),
+                    ]
+                } else {
+                    [
+                        self.step(.oauth, reason: .appAutoPreferredOAuth, input: input),
+                        self.step(.cli, reason: .appAutoFallbackCLI, input: input),
+                        self.step(.web, reason: .appAutoFallbackWeb, input: input),
+                    ]
+                }
             case .cli:
                 [
                     self.step(.web, reason: .cliAutoPreferredWeb, input: input),

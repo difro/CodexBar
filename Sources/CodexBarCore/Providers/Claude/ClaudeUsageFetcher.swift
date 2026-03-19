@@ -7,7 +7,7 @@ public protocol ClaudeUsageFetching: Sendable {
 }
 
 public struct ClaudeUsageSnapshot: Sendable {
-    public let primary: RateWindow
+    public let primary: RateWindow?
     public let secondary: RateWindow?
     public let opus: RateWindow?
     public let providerCost: ProviderCostSnapshot?
@@ -18,7 +18,7 @@ public struct ClaudeUsageSnapshot: Sendable {
     public let rawText: String?
 
     public init(
-        primary: RateWindow,
+        primary: RateWindow?,
         secondary: RateWindow?,
         opus: RateWindow?,
         providerCost: ProviderCostSnapshot? = nil,
@@ -67,6 +67,7 @@ public struct ClaudeUsageFetcher: ClaudeUsageFetching, Sendable {
         let allowStartupBootstrapPrompt: Bool
         let useWebExtras: Bool
         let manualCookieHeader: String?
+        let preferredOrganizationID: String?
         let keepCLISessionsAlive: Bool
         let browserDetection: BrowserDetection
     }
@@ -107,6 +108,10 @@ public struct ClaudeUsageFetcher: ClaudeUsageFetching, Sendable {
 
     private var manualCookieHeader: String? {
         self.configuration.manualCookieHeader
+    }
+
+    private var preferredOrganizationID: String? {
+        self.configuration.preferredOrganizationID
     }
 
     private var keepCLISessionsAlive: Bool {
@@ -206,6 +211,7 @@ public struct ClaudeUsageFetcher: ClaudeUsageFetching, Sendable {
         allowStartupBootstrapPrompt: Bool = false,
         useWebExtras: Bool = false,
         manualCookieHeader: String? = nil,
+        preferredOrganizationID: String? = nil,
         keepCLISessionsAlive: Bool = false)
     {
         self.configuration = Configuration(
@@ -217,6 +223,7 @@ public struct ClaudeUsageFetcher: ClaudeUsageFetching, Sendable {
             allowStartupBootstrapPrompt: allowStartupBootstrapPrompt,
             useWebExtras: useWebExtras,
             manualCookieHeader: manualCookieHeader,
+            preferredOrganizationID: preferredOrganizationID,
             keepCLISessionsAlive: keepCLISessionsAlive,
             browserDetection: browserDetection)
     }
@@ -477,6 +484,9 @@ public struct ClaudeUsageFetcher: ClaudeUsageFetching, Sendable {
             return ClaudeSourcePlanner.resolve(input: ClaudeSourcePlanningInput(
                 runtime: self.fetcher.runtime,
                 selectedDataSource: .auto,
+                preferredOrganizationSelected: !(self.fetcher.preferredOrganizationID?
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+                    .isEmpty ?? true),
                 webExtrasEnabled: self.fetcher.useWebExtras,
                 hasWebSession: hasWebSession,
                 hasCLI: hasCLI,
@@ -632,7 +642,7 @@ extension ClaudeUsageFetcher {
             let email = snap.accountEmail ?? "nil"
             let org = snap.accountOrganization ?? "nil"
             let weekly = snap.secondary?.remainingPercent ?? -1
-            let primary = snap.primary.remainingPercent
+            let primary = snap.primary?.remainingPercent ?? -1
             return """
             session_left=\(primary) weekly_left=\(weekly)
             opus_left=\(opus) email \(email) org \(org)
@@ -877,20 +887,28 @@ extension ClaudeUsageFetcher {
     private func loadViaWebAPI() async throws -> ClaudeUsageSnapshot {
         let webData: ClaudeWebAPIFetcher.WebUsageData =
             if let header = self.manualCookieHeader {
-                try await ClaudeWebAPIFetcher.fetchUsage(cookieHeader: header) { msg in
+                try await ClaudeWebAPIFetcher.fetchUsage(
+                    cookieHeader: header,
+                    preferredOrganizationID: self.preferredOrganizationID)
+                { msg in
                     Self.log.debug(msg)
                 }
             } else {
-                try await ClaudeWebAPIFetcher.fetchUsage(browserDetection: self.browserDetection) { msg in
+                try await ClaudeWebAPIFetcher.fetchUsage(
+                    browserDetection: self.browserDetection,
+                    preferredOrganizationID: self.preferredOrganizationID)
+                { msg in
                     Self.log.debug(msg)
                 }
             }
         // Convert web API data to ClaudeUsageSnapshot format
-        let primary = RateWindow(
-            usedPercent: webData.sessionPercentUsed,
-            windowMinutes: 5 * 60,
-            resetsAt: webData.sessionResetsAt,
-            resetDescription: webData.sessionResetsAt.map { Self.formatResetDate($0) })
+        let primary: RateWindow? = webData.sessionPercentUsed.map { sessionPercentUsed in
+            RateWindow(
+                usedPercent: sessionPercentUsed,
+                windowMinutes: 5 * 60,
+                resetsAt: webData.sessionResetsAt,
+                resetDescription: webData.sessionResetsAt.map { Self.formatResetDate($0) })
+        }
 
         let secondary: RateWindow? = webData.weeklyPercentUsed.map { pct in
             RateWindow(
@@ -976,12 +994,16 @@ extension ClaudeUsageFetcher {
         do {
             let webData: ClaudeWebAPIFetcher.WebUsageData =
                 if let header = self.manualCookieHeader {
-                    try await ClaudeWebAPIFetcher.fetchUsage(cookieHeader: header) { msg in
+                    try await ClaudeWebAPIFetcher.fetchUsage(
+                        cookieHeader: header,
+                        preferredOrganizationID: self.preferredOrganizationID)
+                    { msg in
                         Self.log.debug(msg)
                     }
                 } else {
                     try await ClaudeWebAPIFetcher.fetchUsage(
-                        browserDetection: self.browserDetection)
+                        browserDetection: self.browserDetection,
+                        preferredOrganizationID: self.preferredOrganizationID)
                     { msg in
                         Self.log.debug(msg)
                     }

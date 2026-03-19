@@ -26,10 +26,25 @@ public enum ClaudeWebAPIFetcher {
     public struct OrganizationInfo: Sendable {
         public let id: String
         public let name: String?
+        public let capabilities: [String]
 
-        public init(id: String, name: String?) {
+        public init(id: String, name: String?, capabilities: [String] = []) {
             self.id = id
             self.name = name
+            self.capabilities = capabilities
+        }
+
+        fileprivate var normalizedCapabilities: Set<String> {
+            Set(self.capabilities.map { $0.lowercased() })
+        }
+
+        fileprivate var hasChatCapability: Bool {
+            self.normalizedCapabilities.contains("chat")
+        }
+
+        fileprivate var isApiOnly: Bool {
+            let normalized = self.normalizedCapabilities
+            return !normalized.isEmpty && normalized == ["api"]
         }
     }
 
@@ -79,7 +94,7 @@ public enum ClaudeWebAPIFetcher {
 
     /// Claude usage data from the API
     public struct WebUsageData: Sendable {
-        public let sessionPercentUsed: Double
+        public let sessionPercentUsed: Double?
         public let sessionResetsAt: Date?
         public let weeklyPercentUsed: Double?
         public let weeklyResetsAt: Date?
@@ -90,7 +105,7 @@ public enum ClaudeWebAPIFetcher {
         public let loginMethod: String?
 
         public init(
-            sessionPercentUsed: Double,
+            sessionPercentUsed: Double?,
             sessionResetsAt: Date?,
             weeklyPercentUsed: Double?,
             weeklyResetsAt: Date?,
@@ -123,6 +138,25 @@ public enum ClaudeWebAPIFetcher {
         public let bodyPreview: String?
     }
 
+    private actor OrganizationCache {
+        private var organizations: [OrganizationInfo] = []
+
+        func store(_ organizations: [OrganizationInfo]) {
+            var seen: Set<String> = []
+            self.organizations = organizations.filter { seen.insert($0.id).inserted }
+        }
+
+        func snapshot() -> [OrganizationInfo] {
+            self.organizations
+        }
+    }
+
+    private static let organizationCache = OrganizationCache()
+
+    public static func cachedOrganizations() async -> [OrganizationInfo] {
+        await self.organizationCache.snapshot()
+    }
+
     // MARK: - Public API
 
     #if os(macOS)
@@ -131,6 +165,7 @@ public enum ClaudeWebAPIFetcher {
     /// Tries browser cookies using the standard import order.
     public static func fetchUsage(
         browserDetection: BrowserDetection,
+        preferredOrganizationID: String? = nil,
         logger: ((String) -> Void)? = nil) async throws -> WebUsageData
     {
         let log: (String) -> Void = { msg in logger?("[claude-web] \(msg)") }
@@ -140,7 +175,10 @@ public enum ClaudeWebAPIFetcher {
         {
             log("Using cached cookie header from \(cached.sourceLabel)")
             do {
-                return try await self.fetchUsage(cookieHeader: cached.cookieHeader, logger: log)
+                return try await self.fetchUsage(
+                    cookieHeader: cached.cookieHeader,
+                    preferredOrganizationID: preferredOrganizationID,
+                    logger: log)
             } catch let error as FetchError {
                 switch error {
                 case .unauthorized, .noSessionKeyFound, .invalidSessionKey:
@@ -156,7 +194,10 @@ public enum ClaudeWebAPIFetcher {
         let sessionInfo = try extractSessionKeyInfo(browserDetection: browserDetection, logger: log)
         log("Found session key (\(sessionInfo.cookieCount) cookies)")
 
-        let usage = try await self.fetchUsage(using: sessionInfo, logger: log)
+        let usage = try await self.fetchUsage(
+            using: sessionInfo,
+            preferredOrganizationID: preferredOrganizationID,
+            logger: log)
         CookieHeaderCache.store(
             provider: .claude,
             cookieHeader: "sessionKey=\(sessionInfo.key)",
@@ -166,24 +207,34 @@ public enum ClaudeWebAPIFetcher {
 
     public static func fetchUsage(
         cookieHeader: String,
+        preferredOrganizationID: String? = nil,
         logger: ((String) -> Void)? = nil) async throws -> WebUsageData
     {
         let log: (String) -> Void = { msg in logger?("[claude-web] \(msg)") }
         let sessionInfo = try self.sessionKeyInfo(cookieHeader: cookieHeader)
         log("Using manual session key (\(sessionInfo.cookieCount) cookies)")
-        return try await self.fetchUsage(using: sessionInfo, logger: log)
+        return try await self.fetchUsage(
+            using: sessionInfo,
+            preferredOrganizationID: preferredOrganizationID,
+            logger: log)
     }
 
     public static func fetchUsage(
         using sessionKeyInfo: SessionKeyInfo,
+        preferredOrganizationID: String? = nil,
         logger: ((String) -> Void)? = nil) async throws -> WebUsageData
     {
         let log: (String) -> Void = { msg in logger?(msg) }
         let sessionKey = sessionKeyInfo.key
 
         // Fetch organization info
-        let organization = try await fetchOrganizationInfo(sessionKey: sessionKey, logger: log)
-        log("Organization resolved")
+        let organizations = try await fetchOrganizations(sessionKey: sessionKey, logger: log)
+        await self.organizationCache.store(organizations)
+        let organization = try self.selectOrganization(
+            organizations,
+            preferredOrganizationID: preferredOrganizationID,
+            logger: log)
+        log("Organization resolved: \(organization.id)")
 
         var usage = try await fetchUsageData(orgId: organization.id, sessionKey: sessionKey, logger: log)
         if usage.extraUsageCost == nil,
@@ -240,7 +291,13 @@ public enum ClaudeWebAPIFetcher {
         let log: (String) -> Void = { msg in logger?("[claude-probe] \(msg)") }
         let sessionInfo = try extractSessionKeyInfo(browserDetection: browserDetection, logger: log)
         let sessionKey = sessionInfo.key
-        let organization = try? await fetchOrganizationInfo(sessionKey: sessionKey, logger: log)
+        let organizations = try? await fetchOrganizations(sessionKey: sessionKey, logger: log)
+        if let organizations {
+            await self.organizationCache.store(organizations)
+        }
+        let organization = try? organizations.flatMap { orgs in
+            try self.selectOrganization(orgs, preferredOrganizationID: nil, logger: log)
+        }
         let expanded = endpoints.map { endpoint -> String in
             var url = endpoint
             if let orgId = organization?.id {
@@ -388,9 +445,9 @@ public enum ClaudeWebAPIFetcher {
 
     // MARK: - API Calls
 
-    private static func fetchOrganizationInfo(
+    private static func fetchOrganizations(
         sessionKey: String,
-        logger: ((String) -> Void)? = nil) async throws -> OrganizationInfo
+        logger: ((String) -> Void)? = nil) async throws -> [OrganizationInfo]
     {
         let url = URL(string: "\(baseURL)/organizations")!
         var request = URLRequest(url: url)
@@ -409,7 +466,7 @@ public enum ClaudeWebAPIFetcher {
 
         switch httpResponse.statusCode {
         case 200:
-            return try self.parseOrganizationResponse(data)
+            return try self.parseOrganizationsResponse(data)
         case 401, 403:
             throw FetchError.unauthorized
         default:
@@ -439,7 +496,12 @@ public enum ClaudeWebAPIFetcher {
 
         switch httpResponse.statusCode {
         case 200:
-            return try self.parseUsageResponse(data)
+            do {
+                return try self.parseUsageResponse(data)
+            } catch {
+                logger?("Usage parse failed: \(self.debugUsageResponseSummary(data))")
+                throw error
+            }
         case 401, 403:
             throw FetchError.unauthorized
         default:
@@ -452,40 +514,20 @@ public enum ClaudeWebAPIFetcher {
             throw FetchError.invalidResponse
         }
 
-        // Parse five_hour (session) usage
-        var sessionPercent: Double?
-        var sessionResets: Date?
-        if let fiveHour = json["five_hour"] as? [String: Any] {
-            if let utilization = fiveHour["utilization"] as? Int {
-                sessionPercent = Double(utilization)
-            }
-            if let resetsAt = fiveHour["resets_at"] as? String {
-                sessionResets = self.parseISO8601Date(resetsAt)
-            }
-        }
-        guard let sessionPercent else {
-            // If we can't parse session utilization, treat this as a failure so callers can fall back to the CLI.
+        let sessionWindow = json["five_hour"] as? [String: Any]
+        let sessionPercent = sessionWindow.flatMap { self.numericValue($0["utilization"]) }
+        let sessionResets = (sessionWindow?["resets_at"] as? String).flatMap(self.parseISO8601Date)
+
+        let weeklyWindow = json["seven_day"] as? [String: Any]
+        let weeklyPercent = weeklyWindow.flatMap { self.numericValue($0["utilization"]) }
+        let weeklyResets = (weeklyWindow?["resets_at"] as? String).flatMap(self.parseISO8601Date)
+
+        let opusWindow = (json["seven_day_opus"] as? [String: Any]) ?? (json["seven_day_sonnet"] as? [String: Any])
+        let opusPercent = opusWindow.flatMap { self.numericValue($0["utilization"]) }
+        let extraUsageCost = (json["extra_usage"] as? [String: Any]).flatMap(self.parseExtraUsageCost)
+
+        guard sessionPercent != nil || weeklyPercent != nil || opusPercent != nil || extraUsageCost != nil else {
             throw FetchError.invalidResponse
-        }
-
-        // Parse seven_day (weekly) usage
-        var weeklyPercent: Double?
-        var weeklyResets: Date?
-        if let sevenDay = json["seven_day"] as? [String: Any] {
-            if let utilization = sevenDay["utilization"] as? Int {
-                weeklyPercent = Double(utilization)
-            }
-            if let resetsAt = sevenDay["resets_at"] as? String {
-                weeklyResets = self.parseISO8601Date(resetsAt)
-            }
-        }
-
-        // Parse seven_day_opus (Opus-specific weekly) usage
-        var opusPercent: Double?
-        if let sevenDayOpus = json["seven_day_opus"] as? [String: Any] {
-            if let utilization = sevenDayOpus["utilization"] as? Int {
-                opusPercent = Double(utilization)
-            }
         }
 
         return WebUsageData(
@@ -494,10 +536,96 @@ public enum ClaudeWebAPIFetcher {
             weeklyPercentUsed: weeklyPercent,
             weeklyResetsAt: weeklyResets,
             opusPercentUsed: opusPercent,
-            extraUsageCost: nil,
+            extraUsageCost: extraUsageCost,
             accountOrganization: nil,
             accountEmail: nil,
             loginMethod: nil)
+    }
+
+    private static func numericValue(_ raw: Any?) -> Double? {
+        switch raw {
+        case let number as NSNumber:
+            if CFGetTypeID(number) == CFBooleanGetTypeID() {
+                return nil
+            }
+            return number.doubleValue
+        case let string as String:
+            let trimmed = string.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmed.isEmpty else { return nil }
+            let sanitized = trimmed.hasSuffix("%") ? String(trimmed.dropLast()) : trimmed
+            return Double(sanitized)
+        default:
+            return nil
+        }
+    }
+
+    private static func boolValue(_ raw: Any?) -> Bool? {
+        switch raw {
+        case let bool as Bool:
+            return bool
+        case let number as NSNumber:
+            if CFGetTypeID(number) == CFBooleanGetTypeID() {
+                return number.boolValue
+            }
+            return nil
+        case let string as String:
+            switch string.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
+            case "true", "1", "yes":
+                return true
+            case "false", "0", "no":
+                return false
+            default:
+                return nil
+            }
+        default:
+            return nil
+        }
+    }
+
+    private static func stringValue(_ raw: Any?) -> String? {
+        guard let string = raw as? String else { return nil }
+        let trimmed = string.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
+    }
+
+    private static func parseExtraUsageCost(_ json: [String: Any]) -> ProviderCostSnapshot? {
+        if let isEnabled = self.boolValue(json["is_enabled"] ?? json["isEnabled"]),
+           !isEnabled
+        {
+            return nil
+        }
+        guard let used = self.numericValue(json["used_credits"] ?? json["usedCredits"]),
+              let limit = self.numericValue(json["monthly_limit"] ?? json["monthlyCreditLimit"])
+        else {
+            return nil
+        }
+        let currency = self.stringValue(json["currency"]) ?? "USD"
+        return self.makeExtraUsageCost(used: used, limit: limit, currencyCode: currency)
+    }
+
+    private static func debugUsageResponseSummary(_ data: Data) -> String {
+        let rawText = String(data: data.prefix(500), encoding: .utf8)?
+            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        guard let json = try? JSONSerialization.jsonObject(with: data) else {
+            if rawText.isEmpty {
+                return "non-JSON response"
+            }
+            return "non-JSON response preview=\(rawText)"
+        }
+
+        let keys: [String] = if let dict = json as? [String: Any] {
+            dict.keys.sorted()
+        } else if let array = json as? [[String: Any]], let first = array.first {
+            first.keys.sorted()
+        } else {
+            []
+        }
+
+        let notable = self.extractNotableFields(from: json).prefix(12).joined(separator: ", ")
+        let preview = rawText.isEmpty ? "" : " preview=\(rawText)"
+        let notableText = notable.isEmpty ? "" : " notable=\(notable)"
+        let keyText = keys.isEmpty ? "keys=[]" : "keys=[\(keys.joined(separator: ","))]"
+        return "\(keyText)\(notableText)\(preview)"
     }
 
     // MARK: - Extra usage cost (Claude "Extra")
@@ -544,17 +672,23 @@ public enum ClaudeWebAPIFetcher {
         guard let decoded = try? JSONDecoder().decode(OverageSpendLimitResponse.self, from: data) else { return nil }
         guard decoded.isEnabled == true else { return nil }
         guard let used = decoded.usedCredits,
-              let limit = decoded.monthlyCreditLimit,
-              let currency = decoded.currency,
-              !currency.isEmpty else { return nil }
+              let limit = decoded.monthlyCreditLimit else { return nil }
+        let currency = decoded.currency?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let currencyCode = (currency?.isEmpty ?? true) ? "USD" : currency!
+        return self.makeExtraUsageCost(used: used, limit: limit, currencyCode: currencyCode)
+    }
 
-        let usedAmount = used / 100.0
-        let limitAmount = limit / 100.0
-
+    private static func makeExtraUsageCost(
+        used: Double,
+        limit: Double,
+        currencyCode: String) -> ProviderCostSnapshot
+    {
+        let normalizedCurrency = currencyCode.trimmingCharacters(in: .whitespacesAndNewlines)
+        let code = normalizedCurrency.isEmpty ? "USD" : normalizedCurrency
         return ProviderCostSnapshot(
-            used: usedAmount,
-            limit: limitAmount,
-            currencyCode: currency,
+            used: used / 100.0,
+            limit: limit / 100.0,
+            currencyCode: code,
             period: "Monthly",
             resetsAt: nil,
             updatedAt: Date())
@@ -568,8 +702,12 @@ public enum ClaudeWebAPIFetcher {
         try self.parseUsageResponse(data)
     }
 
-    public static func _parseOrganizationsResponseForTesting(_ data: Data) throws -> OrganizationInfo {
-        try self.parseOrganizationResponse(data)
+    public static func _parseOrganizationsResponseForTesting(
+        _ data: Data,
+        preferredOrganizationID: String? = nil) throws -> OrganizationInfo
+    {
+        let organizations = try self.parseOrganizationsResponse(data)
+        return try self.selectOrganization(organizations, preferredOrganizationID: preferredOrganizationID)
     }
 
     public static func _parseOverageSpendLimitForTesting(_ data: Data) -> ProviderCostSnapshot? {
@@ -596,34 +734,44 @@ public enum ClaudeWebAPIFetcher {
         let uuid: String
         let name: String?
         let capabilities: [String]?
-
-        var normalizedCapabilities: Set<String> {
-            Set((self.capabilities ?? []).map { $0.lowercased() })
-        }
-
-        var hasChatCapability: Bool {
-            self.normalizedCapabilities.contains("chat")
-        }
-
-        var isApiOnly: Bool {
-            let normalized = self.normalizedCapabilities
-            return !normalized.isEmpty && normalized == ["api"]
-        }
     }
 
-    private static func parseOrganizationResponse(_ data: Data) throws -> OrganizationInfo {
+    private static func parseOrganizationsResponse(_ data: Data) throws -> [OrganizationInfo] {
         guard let organizations = try? JSONDecoder().decode([OrganizationResponse].self, from: data) else {
             throw FetchError.invalidResponse
         }
-        guard let selected = organizations.first(where: { $0.hasChatCapability })
-            ?? organizations.first(where: { !$0.isApiOnly })
-            ?? organizations.first
-        else {
+        let parsed = organizations.map { organization in
+            let name = organization.name?.trimmingCharacters(in: .whitespacesAndNewlines)
+            let sanitized = (name?.isEmpty ?? true) ? nil : name
+            return OrganizationInfo(
+                id: organization.uuid,
+                name: sanitized,
+                capabilities: organization.capabilities ?? [])
+        }
+        guard !parsed.isEmpty else {
             throw FetchError.noOrganization
         }
-        let name = selected.name?.trimmingCharacters(in: .whitespacesAndNewlines)
-        let sanitized = (name?.isEmpty ?? true) ? nil : name
-        return OrganizationInfo(id: selected.uuid, name: sanitized)
+        return parsed
+    }
+
+    private static func selectOrganization(
+        _ organizations: [OrganizationInfo],
+        preferredOrganizationID: String?,
+        logger: ((String) -> Void)? = nil) throws -> OrganizationInfo
+    {
+        guard !organizations.isEmpty else { throw FetchError.noOrganization }
+
+        let preferred = preferredOrganizationID?.trimmingCharacters(in: .whitespacesAndNewlines)
+        if let preferred, !preferred.isEmpty {
+            if let match = organizations.first(where: { $0.id == preferred }) {
+                return match
+            }
+            logger?("Preferred organization \(preferred) not found; falling back to automatic selection")
+        }
+
+        return organizations.first(where: { $0.hasChatCapability })
+            ?? organizations.first(where: { !$0.isApiOnly })
+            ?? organizations[0]
     }
 
     public struct WebAccountInfo: Sendable {
@@ -830,26 +978,34 @@ public enum ClaudeWebAPIFetcher {
 
     public static func fetchUsage(
         browserDetection: BrowserDetection,
+        preferredOrganizationID: String? = nil,
         logger: ((String) -> Void)? = nil) async throws -> WebUsageData
     {
         _ = browserDetection
+        _ = preferredOrganizationID
         _ = logger
         throw FetchError.notSupportedOnThisPlatform
     }
 
     public static func fetchUsage(
         cookieHeader: String,
+        preferredOrganizationID: String? = nil,
         logger: ((String) -> Void)? = nil) async throws -> WebUsageData
     {
         _ = cookieHeader
+        _ = preferredOrganizationID
         _ = logger
         throw FetchError.notSupportedOnThisPlatform
     }
 
     public static func fetchUsage(
         using sessionKeyInfo: SessionKeyInfo,
+        preferredOrganizationID: String? = nil,
         logger: ((String) -> Void)? = nil) async throws -> WebUsageData
     {
+        _ = sessionKeyInfo
+        _ = preferredOrganizationID
+        _ = logger
         throw FetchError.notSupportedOnThisPlatform
     }
 

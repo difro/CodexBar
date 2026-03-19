@@ -24,6 +24,27 @@ struct ClaudeSourcePlannerTests {
     }
 
     @Test
+    func `app auto plan prefers web when organization is selected`() {
+        let plan = ClaudeSourcePlanner.resolve(input: ClaudeSourcePlanningInput(
+            runtime: .app,
+            selectedDataSource: .auto,
+            preferredOrganizationSelected: true,
+            webExtrasEnabled: false,
+            hasWebSession: true,
+            hasCLI: true,
+            hasOAuthCredentials: true))
+
+        #expect(plan.orderedSteps.map(\.dataSource) == [.web, .oauth, .cli])
+        #expect(plan.orderedSteps.map(\.inclusionReason) == [
+            .appAutoPreferredWebSelectedOrganization,
+            .appAutoFallbackOAuthSelectedOrganization,
+            .appAutoFallbackCLISelectedOrganization,
+        ])
+        #expect(plan.availableSteps.map(\.dataSource) == [.web, .oauth, .cli])
+        #expect(plan.preferredStep?.dataSource == .web)
+    }
+
+    @Test
     func `CLI auto plan preserves ordered steps and reasons`() {
         let plan = ClaudeSourcePlanner.resolve(input: ClaudeSourcePlanningInput(
             runtime: .cli,

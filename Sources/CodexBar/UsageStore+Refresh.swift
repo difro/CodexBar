@@ -77,6 +77,12 @@ extension UsageStore {
 
         switch outcome.result {
         case let .success(result):
+            if provider == .claude {
+                let organizations = await ClaudeWebAPIFetcher.cachedOrganizations()
+                if !organizations.isEmpty {
+                    self.settings.replaceClaudeDiscoveredOrganizations(organizations)
+                }
+            }
             let scoped = result.usage.scoped(to: provider)
             await MainActor.run {
                 self.handleSessionQuotaTransition(provider: provider, snapshot: scoped)

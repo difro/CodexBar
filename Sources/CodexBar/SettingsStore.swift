@@ -81,6 +81,7 @@ final class SettingsStore {
     var configRevision: Int = 0
     var providerOrder: [UsageProvider] = []
     var providerEnablement: [UsageProvider: Bool] = [:]
+    var claudeDiscoveredOrganizations: [ClaudeOrganizationChoice] = []
 
     init(
         userDefaults: UserDefaults = .standard,

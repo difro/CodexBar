@@ -152,7 +152,7 @@ struct ClaudeOAuthDelegatedRefreshRecoveryTests {
                                 // touch.
                                 #expect(await delegatedCounter.current() == 0)
                                 #expect(await tokenCapture.get() == "fresh-token")
-                                #expect(snapshot.primary.usedPercent == 7)
+                                #expect(snapshot.primary?.usedPercent == 7)
                                 #expect(snapshot.secondary?.usedPercent == 21)
                                 return snapshot
                             }
@@ -267,7 +267,7 @@ struct ClaudeOAuthDelegatedRefreshRecoveryTests {
                                     Issue.record("Expected fresh-token, got \(capturedToken ?? "nil")")
                                 }
                                 #expect(capturedToken == "fresh-token")
-                                #expect(snapshot.primary.usedPercent == 7)
+                                #expect(snapshot.primary?.usedPercent == 7)
                                 #expect(snapshot.secondary?.usedPercent == 21)
                                 return snapshot
                             }

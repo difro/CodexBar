@@ -42,12 +42,12 @@ struct ClaudePlanResolverTests {
     }
 
     @Test
-    func `subscription compatibility preserves ultra and excludes enterprise`() {
+    func `subscription compatibility preserves ultra and includes enterprise`() {
         #expect(ClaudePlan.isSubscriptionLoginMethod("Claude Max"))
         #expect(ClaudePlan.isSubscriptionLoginMethod("Pro"))
         #expect(ClaudePlan.isSubscriptionLoginMethod("Ultra"))
         #expect(ClaudePlan.isSubscriptionLoginMethod("Team"))
-        #expect(!ClaudePlan.isSubscriptionLoginMethod("Claude Enterprise"))
+        #expect(ClaudePlan.isSubscriptionLoginMethod("Claude Enterprise"))
         #expect(!ClaudePlan.isSubscriptionLoginMethod("Profile"))
         #expect(!ClaudePlan.isSubscriptionLoginMethod("Browser profile"))
         #expect(!ClaudePlan.isSubscriptionLoginMethod("API"))
