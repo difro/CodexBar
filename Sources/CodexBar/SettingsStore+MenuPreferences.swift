@@ -10,13 +10,16 @@ extension SettingsStore {
             switch preference {
             case .automatic, .primary:
                 return preference
-            case .secondary, .average:
+            case .secondary, .average, .providerCost:
                 return .automatic
             }
         }
         let raw = self.menuBarMetricPreferencesRaw[provider.rawValue] ?? ""
         let preference = MenuBarMetricPreference(rawValue: raw) ?? .automatic
         if preference == .average, !self.menuBarMetricSupportsAverage(for: provider) {
+            return .automatic
+        }
+        if preference == .providerCost, !self.menuBarMetricSupportsProviderCost(for: provider) {
             return .automatic
         }
         return preference
@@ -31,9 +34,17 @@ extension SettingsStore {
             switch preference {
             case .automatic, .primary:
                 self.menuBarMetricPreferencesRaw[provider.rawValue] = preference.rawValue
-            case .secondary, .average:
+            case .secondary, .average, .providerCost:
                 self.menuBarMetricPreferencesRaw[provider.rawValue] = MenuBarMetricPreference.automatic.rawValue
             }
+            return
+        }
+        if preference == .average, !self.menuBarMetricSupportsAverage(for: provider) {
+            self.menuBarMetricPreferencesRaw[provider.rawValue] = MenuBarMetricPreference.automatic.rawValue
+            return
+        }
+        if preference == .providerCost, !self.menuBarMetricSupportsProviderCost(for: provider) {
+            self.menuBarMetricPreferencesRaw[provider.rawValue] = MenuBarMetricPreference.automatic.rawValue
             return
         }
         self.menuBarMetricPreferencesRaw[provider.rawValue] = preference.rawValue
@@ -41,6 +52,10 @@ extension SettingsStore {
 
     func menuBarMetricSupportsAverage(for provider: UsageProvider) -> Bool {
         provider == .gemini
+    }
+
+    func menuBarMetricSupportsProviderCost(for provider: UsageProvider) -> Bool {
+        provider == .claude
     }
 
     func isCostUsageEffectivelyEnabled(for provider: UsageProvider) -> Bool {

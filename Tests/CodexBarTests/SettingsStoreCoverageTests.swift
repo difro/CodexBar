@@ -46,6 +46,10 @@ struct SettingsStoreCoverageTests {
         #expect(settings.menuBarMetricPreference(for: .gemini) == .average)
         #expect(settings.menuBarMetricSupportsAverage(for: .gemini))
 
+        settings.setMenuBarMetricPreference(.providerCost, for: .claude)
+        #expect(settings.menuBarMetricPreference(for: .claude) == .providerCost)
+        #expect(settings.menuBarMetricSupportsProviderCost(for: .claude))
+
         settings.setMenuBarMetricPreference(.secondary, for: .zai)
         #expect(settings.menuBarMetricPreference(for: .zai) == .primary)
 

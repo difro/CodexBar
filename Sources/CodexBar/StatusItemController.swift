@@ -133,6 +133,8 @@ final class StatusItemController: NSObject, NSMenuDelegate, StatusItemControllin
             }
             let usedPercent = (primary.usedPercent + secondary.usedPercent) / 2
             return RateWindow(usedPercent: usedPercent, windowMinutes: nil, resetsAt: nil, resetDescription: nil)
+        case .providerCost:
+            return snapshot?.providerCost?.metricWindow
         case .automatic:
             if provider == .factory || provider == .kimi {
                 return snapshot?.secondary ?? snapshot?.primary

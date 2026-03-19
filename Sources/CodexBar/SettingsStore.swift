@@ -43,6 +43,7 @@ enum MenuBarMetricPreference: String, CaseIterable, Identifiable {
     case primary
     case secondary
     case average
+    case providerCost
 
     var id: String {
         self.rawValue
@@ -54,6 +55,7 @@ enum MenuBarMetricPreference: String, CaseIterable, Identifiable {
         case .primary: "Primary"
         case .secondary: "Secondary"
         case .average: "Average"
+        case .providerCost: "Provider Cost"
         }
     }
 }

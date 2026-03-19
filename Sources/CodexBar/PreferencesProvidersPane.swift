@@ -275,6 +275,7 @@ struct ProvidersPane: View {
         } else {
             let metadata = self.store.metadata(for: provider)
             let supportsAverage = self.settings.menuBarMetricSupportsAverage(for: provider)
+            let supportsProviderCost = self.settings.menuBarMetricSupportsProviderCost(for: provider)
             var metricOptions: [ProviderSettingsPickerOption] = [
                 ProviderSettingsPickerOption(id: MenuBarMetricPreference.automatic.rawValue, title: "Automatic"),
                 ProviderSettingsPickerOption(
@@ -288,6 +289,11 @@ struct ProvidersPane: View {
                 metricOptions.append(ProviderSettingsPickerOption(
                     id: MenuBarMetricPreference.average.rawValue,
                     title: "Average (\(metadata.sessionLabel) + \(metadata.weeklyLabel))"))
+            }
+            if supportsProviderCost {
+                metricOptions.append(ProviderSettingsPickerOption(
+                    id: MenuBarMetricPreference.providerCost.rawValue,
+                    title: "Extra Usage (monthly spend)"))
             }
             options = metricOptions
         }

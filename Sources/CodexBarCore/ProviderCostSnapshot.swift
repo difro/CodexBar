@@ -26,4 +26,14 @@ public struct ProviderCostSnapshot: Equatable, Codable, Sendable {
         self.resetsAt = resetsAt
         self.updatedAt = updatedAt
     }
+
+    public var metricWindow: RateWindow? {
+        guard self.limit > 0 else { return nil }
+        let usedPercent = min(100, max(0, (self.used / self.limit) * 100))
+        return RateWindow(
+            usedPercent: usedPercent,
+            windowMinutes: nil,
+            resetsAt: self.resetsAt,
+            resetDescription: nil)
+    }
 }
