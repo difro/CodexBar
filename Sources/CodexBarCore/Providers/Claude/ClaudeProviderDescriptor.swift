@@ -70,9 +70,13 @@ public enum ClaudeProviderDescriptor {
 
     private static func makePlanningInput(context: ProviderFetchContext) async -> ClaudeSourcePlanningInput {
         let webExtrasEnabled = context.settings?.claude?.webExtrasEnabled ?? false
+        let preferredOrganizationSelected = !(context.settings?.claude?.preferredOrganizationID?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .isEmpty ?? true)
         return ClaudeSourcePlanningInput(
             runtime: context.runtime,
             selectedDataSource: Self.sourceDataSource(from: context.sourceMode),
+            preferredOrganizationSelected: preferredOrganizationSelected,
             webExtrasEnabled: webExtrasEnabled,
             hasWebSession: ClaudeWebFetchStrategy.isAvailableForFallback(
                 context: context,
@@ -95,6 +99,7 @@ public enum ClaudeProviderDescriptor {
 
     public static func resolveUsageStrategy(
         selectedDataSource: ClaudeUsageDataSource,
+        preferredOrganizationSelected: Bool = false,
         webExtrasEnabled: Bool,
         hasWebSession: Bool,
         hasCLI: Bool,
@@ -103,6 +108,7 @@ public enum ClaudeProviderDescriptor {
         let plan = ClaudeSourcePlanner.resolve(input: ClaudeSourcePlanningInput(
             runtime: .app,
             selectedDataSource: selectedDataSource,
+            preferredOrganizationSelected: preferredOrganizationSelected,
             webExtrasEnabled: webExtrasEnabled,
             hasWebSession: hasWebSession,
             hasCLI: hasCLI,
@@ -323,7 +329,8 @@ struct ClaudeWebFetchStrategy: ProviderFetchStrategy {
             browserDetection: browserDetection,
             dataSource: .web,
             useWebExtras: false,
-            manualCookieHeader: Self.manualCookieHeader(from: context))
+            manualCookieHeader: Self.manualCookieHeader(from: context),
+            preferredOrganizationID: context.settings?.claude?.preferredOrganizationID)
         let usage = try await fetcher.loadLatestUsage(model: "sonnet")
         return self.makeResult(
             usage: ClaudeOAuthFetchStrategy.snapshot(from: usage),
@@ -374,6 +381,7 @@ struct ClaudeCLIFetchStrategy: ProviderFetchStrategy {
             dataSource: .cli,
             useWebExtras: self.useWebExtras,
             manualCookieHeader: self.manualCookieHeader,
+            preferredOrganizationID: context.settings?.claude?.preferredOrganizationID,
             keepCLISessionsAlive: keepAlive)
         let usage = try await fetcher.loadLatestUsage(model: "sonnet")
         return self.makeResult(

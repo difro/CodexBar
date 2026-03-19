@@ -107,9 +107,17 @@ struct ProvidersPane: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
         .onAppear {
             self.ensureSelection()
+            self.maybeDiscoverOrganizations(for: self.selectedProvider ?? self.providers.first)
         }
         .onChange(of: self.providers) { _, _ in
             self.ensureSelection()
+            self.maybeDiscoverOrganizations(for: self.selectedProvider ?? self.providers.first)
+        }
+        .onChange(of: self.selectedProvider) { _, provider in
+            self.maybeDiscoverOrganizations(for: provider)
+        }
+        .onChange(of: self.settings.configRevision) { _, _ in
+            self.maybeDiscoverOrganizations(for: self.selectedProvider ?? self.providers.first)
         }
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
             self.runSettingsDidBecomeActiveHooks()
@@ -157,6 +165,13 @@ struct ProvidersPane: View {
                     await self.store.refreshProvider(provider, allowDisabled: true)
                 }
             }
+        }
+    }
+
+    private func maybeDiscoverOrganizations(for provider: UsageProvider?) {
+        guard provider == .claude else { return }
+        Task { @MainActor in
+            await self.store.refreshClaudeDiscoveredOrganizations()
         }
     }
 
@@ -465,6 +480,7 @@ struct ProvidersPane: View {
             let snapshot = self.store.snapshot(for: provider)
             let supportsAverage = self.settings.menuBarMetricSupportsAverage(for: provider)
             let supportsTertiary = self.settings.menuBarMetricSupportsTertiary(for: provider, snapshot: snapshot)
+            let supportsProviderCost = self.settings.menuBarMetricSupportsProviderCost(for: provider)
             var metricOptions: [ProviderSettingsPickerOption] = [
                 ProviderSettingsPickerOption(id: MenuBarMetricPreference.automatic.rawValue, title: "Automatic"),
                 ProviderSettingsPickerOption(
@@ -484,6 +500,11 @@ struct ProvidersPane: View {
                 metricOptions.append(ProviderSettingsPickerOption(
                     id: MenuBarMetricPreference.average.rawValue,
                     title: "Average (\(metadata.sessionLabel) + \(metadata.weeklyLabel))"))
+            }
+            if supportsProviderCost {
+                metricOptions.append(ProviderSettingsPickerOption(
+                    id: MenuBarMetricPreference.providerCost.rawValue,
+                    title: "Extra Usage (monthly spend)"))
             }
             options = metricOptions
         }

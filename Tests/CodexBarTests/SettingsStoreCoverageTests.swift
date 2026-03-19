@@ -46,6 +46,10 @@ struct SettingsStoreCoverageTests {
         #expect(settings.menuBarMetricPreference(for: .gemini) == .average)
         #expect(settings.menuBarMetricSupportsAverage(for: .gemini))
 
+        settings.setMenuBarMetricPreference(.providerCost, for: .claude)
+        #expect(settings.menuBarMetricPreference(for: .claude) == .providerCost)
+        #expect(settings.menuBarMetricSupportsProviderCost(for: .claude))
+
         settings.setMenuBarMetricPreference(.secondary, for: .zai)
         #expect(settings.menuBarMetricPreference(for: .zai) == .secondary)
 
@@ -103,6 +107,67 @@ struct SettingsStoreCoverageTests {
         #expect(snapshot.usageDataSource == .auto)
         #expect(snapshot.cookieSource == .manual)
         #expect(snapshot.manualCookieHeader == "sessionKey=sk-ant-session-token")
+    }
+
+    @Test
+    func `claude organization discovery disables browser fallback for OAuth token accounts`() {
+        let settings = Self.makeSettingsStore()
+        settings.claudeCookieSource = .auto
+        settings.addTokenAccount(provider: .claude, label: "OAuth", token: "Bearer sk-ant-oat-account-token")
+
+        let discovery = settings.claudeOrganizationDiscoveryConfiguration()
+
+        #expect(discovery.manualCookieHeader == nil)
+        #expect(discovery.allowsBrowserCookies == false)
+    }
+
+    @Test
+    func `claude organization discovery uses session key token account without browser fallback`() {
+        let settings = Self.makeSettingsStore()
+        settings.claudeCookieSource = .auto
+        settings.addTokenAccount(provider: .claude, label: "Cookie", token: "sk-ant-session-token")
+
+        let discovery = settings.claudeOrganizationDiscoveryConfiguration()
+
+        #expect(discovery.manualCookieHeader == "sessionKey=sk-ant-session-token")
+        #expect(discovery.allowsBrowserCookies == false)
+    }
+
+    @Test
+    func `claude organization discovery cache key changes when cookie credentials change`() {
+        let settings = Self.makeSettingsStore()
+        settings.claudeCookieSource = .manual
+        settings.claudeCookieHeader = "sessionKey=sk-ant-session-token-a"
+        let first = settings.claudeOrganizationDiscoveryConfiguration().cacheKey
+
+        settings.claudeCookieHeader = "sessionKey=sk-ant-session-token-b"
+        let second = settings.claudeOrganizationDiscoveryConfiguration().cacheKey
+
+        #expect(first != second)
+    }
+
+    @Test
+    func `claude organization discovery clears stale organizations when credentials change`() async {
+        let settings = Self.makeSettingsStore()
+        settings.claudeCookieSource = .manual
+        settings.claudeCookieHeader = "sessionKey=sk-ant-session-token-a"
+        let initialKey = settings.claudeOrganizationDiscoveryConfiguration().cacheKey
+        settings.replaceClaudeDiscoveredOrganizations(
+            [ClaudeOrganizationChoice(id: "org-team", name: "Team Org")],
+            sourceKey: initialKey)
+
+        let store = UsageStore(
+            fetcher: UsageFetcher(environment: [:]),
+            browserDetection: BrowserDetection(cacheTTL: 0),
+            settings: settings)
+
+        settings.addTokenAccount(provider: .claude, label: "OAuth", token: "Bearer sk-ant-oat-account-token")
+
+        await store.refreshClaudeDiscoveredOrganizations()
+
+        #expect(settings.claudeDiscoveredOrganizations.isEmpty)
+        #expect(settings.claudeDiscoveredOrganizationsSourceKey == settings.claudeOrganizationDiscoveryConfiguration()
+            .cacheKey)
     }
 
     @Test

@@ -19,6 +19,8 @@ enum MenuBarMetricWindowResolver {
         switch preference {
         case .tertiary:
             return Self.window(in: snapshot, following: Self.tertiaryOrder(for: provider))
+        case .providerCost:
+            return snapshot.providerCost?.metricWindow
         case .primary:
             return Self.window(in: snapshot, following: Self.primaryOrder(for: provider))
         case .secondary:
@@ -107,6 +109,9 @@ enum MenuBarMetricWindowResolver {
                 primary: snapshot.primary,
                 secondary: snapshot.secondary,
                 tertiary: snapshot.tertiary)
+        }
+        if provider == .claude {
+            return snapshot.primary ?? snapshot.secondary ?? snapshot.providerCost?.metricWindow
         }
         return snapshot.primary ?? snapshot.secondary
     }

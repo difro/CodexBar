@@ -109,6 +109,27 @@ struct ProvidersPaneCoverageTests {
     }
 
     @Test
+    func `claude menu bar metric picker includes extra usage`() {
+        let settings = Self.makeSettingsStore(suite: "ProvidersPaneCoverageTests-claude-picker")
+        let store = Self.makeUsageStore(settings: settings)
+        let pane = ProvidersPane(settings: settings, store: store)
+
+        let picker = pane._test_menuBarMetricPicker(for: .claude)
+        #expect(picker?.options.map(\.id) == [
+            MenuBarMetricPreference.automatic.rawValue,
+            MenuBarMetricPreference.primary.rawValue,
+            MenuBarMetricPreference.secondary.rawValue,
+            MenuBarMetricPreference.providerCost.rawValue,
+        ])
+        #expect(picker?.options.map(\.title) == [
+            "Automatic",
+            "Primary (Session)",
+            "Secondary (Weekly)",
+            "Extra Usage (monthly spend)",
+        ])
+    }
+
+    @Test
     func `provider detail plan row formats open router as balance`() {
         let row = ProviderDetailView<EmptyView>.planRow(provider: .openrouter, planText: "Balance: $4.61")
 

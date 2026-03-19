@@ -3,6 +3,7 @@ import Foundation
 public struct ClaudeSourcePlanningInput: Equatable, Sendable {
     public let runtime: ProviderRuntime
     public let selectedDataSource: ClaudeUsageDataSource
+    public let preferredOrganizationSelected: Bool
     public let webExtrasEnabled: Bool
     public let hasWebSession: Bool
     public let hasCLI: Bool
@@ -11,6 +12,7 @@ public struct ClaudeSourcePlanningInput: Equatable, Sendable {
     public init(
         runtime: ProviderRuntime,
         selectedDataSource: ClaudeUsageDataSource,
+        preferredOrganizationSelected: Bool = false,
         webExtrasEnabled: Bool,
         hasWebSession: Bool,
         hasCLI: Bool,
@@ -18,6 +20,7 @@ public struct ClaudeSourcePlanningInput: Equatable, Sendable {
     {
         self.runtime = runtime
         self.selectedDataSource = selectedDataSource
+        self.preferredOrganizationSelected = preferredOrganizationSelected
         self.webExtrasEnabled = webExtrasEnabled
         self.hasWebSession = hasWebSession
         self.hasCLI = hasCLI

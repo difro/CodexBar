@@ -40,6 +40,10 @@ extension UsageStore {
         self.refreshingProviders.insert(provider)
         defer { self.refreshingProviders.remove(provider) }
 
+        if provider == .claude, self.settings.claudeUsageDataSource == .web {
+            await self.refreshClaudeDiscoveredOrganizations(force: true)
+        }
+
         let tokenAccounts = self.tokenAccounts(for: provider)
         if self.shouldFetchAllTokenAccounts(provider: provider, accounts: tokenAccounts) {
             await self.refreshTokenAccounts(provider: provider, accounts: tokenAccounts)
@@ -84,6 +88,16 @@ extension UsageStore {
 
         switch outcome.result {
         case let .success(result):
+            if provider == .claude, result.strategyKind == .web {
+                let organizations = await ClaudeWebAPIFetcher.cachedOrganizations()
+                if !organizations.isEmpty {
+                    self.settings.replaceClaudeDiscoveredOrganizations(
+                        organizations,
+                        sourceKey: self.settings.claudeOrganizationDiscoveryConfiguration().cacheKey)
+                } else {
+                    await self.refreshClaudeDiscoveredOrganizations(force: true)
+                }
+            }
             let scoped = result.usage.scoped(to: provider)
             if provider == .codex,
                let codexExpectedGuard,

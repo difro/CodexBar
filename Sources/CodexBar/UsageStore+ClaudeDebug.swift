@@ -18,6 +18,7 @@ extension UsageStore {
         let usageDataSource: ClaudeUsageDataSource
         let cookieSource: ProviderCookieSource
         let cookieHeader: String
+        let preferredOrganizationID: String?
         let keepCLISessionsAlive: Bool
     }
 
@@ -73,6 +74,9 @@ extension UsageStore {
             let planningInput = ClaudeSourcePlanningInput(
                 runtime: configuration.runtime,
                 selectedDataSource: configuration.usageDataSource,
+                preferredOrganizationSelected: !(configuration.preferredOrganizationID?
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+                    .isEmpty ?? true),
                 webExtrasEnabled: configuration.webExtrasEnabled,
                 hasWebSession: hasKey,
                 hasCLI: hasClaudeBinary,
@@ -91,10 +95,17 @@ extension UsageStore {
             if let delegatedCooldownSeconds {
                 lines.append("delegatedRefreshCooldownSeconds=\(delegatedCooldownSeconds)")
             }
+            if let blockedUntil = BrowserCookieAccessGate.blockedUntil(for: .chrome) {
+                lines.append("browserCookieGate.chromeBlockedUntil=\(blockedUntil)")
+            }
+            if let blockedUntil = BrowserCookieAccessGate.blockedUntil(for: .brave) {
+                lines.append("browserCookieGate.braveBlockedUntil=\(blockedUntil)")
+            }
             lines.append("hasClaudeBinary=\(hasClaudeBinary)")
             if strategy?.useWebExtras == true {
                 lines.append("web_extras=enabled")
             }
+            lines.append("preferredOrganizationID=\(configuration.preferredOrganizationID ?? "auto")")
             lines.append("")
 
             guard let strategy else {
@@ -110,19 +121,29 @@ extension UsageStore {
                 do {
                     let web: ClaudeWebAPIFetcher.WebUsageData =
                         if let manualHeader {
-                            try await ClaudeWebAPIFetcher.fetchUsage(cookieHeader: manualHeader) { msg in
+                            try await ClaudeWebAPIFetcher.fetchUsage(
+                                cookieHeader: manualHeader,
+                                preferredOrganizationID: configuration.preferredOrganizationID)
+                            { msg in
                                 lines.append(msg)
                             }
                         } else {
-                            try await ClaudeWebAPIFetcher.fetchUsage(browserDetection: browserDetection) { msg in
+                            try await ClaudeWebAPIFetcher.fetchUsage(
+                                browserDetection: browserDetection,
+                                preferredOrganizationID: configuration.preferredOrganizationID)
+                            { msg in
                                 lines.append(msg)
                             }
                         }
                     lines.append("")
                     lines.append("Web API summary:")
 
-                    let sessionReset = web.sessionResetsAt?.description ?? "nil"
-                    lines.append("session_used=\(web.sessionPercentUsed)% resetsAt=\(sessionReset)")
+                    if let sessionUsed = web.sessionPercentUsed {
+                        let sessionReset = web.sessionResetsAt?.description ?? "nil"
+                        lines.append("session_used=\(sessionUsed)% resetsAt=\(sessionReset)")
+                    } else {
+                        lines.append("session_used=nil")
+                    }
 
                     if let weekly = web.weeklyPercentUsed {
                         let weeklyReset = web.weeklyResetsAt?.description ?? "nil"
@@ -155,6 +176,7 @@ extension UsageStore {
                     environment: configuration.environment,
                     runtime: configuration.runtime,
                     dataSource: configuration.usageDataSource,
+                    preferredOrganizationID: configuration.preferredOrganizationID,
                     keepCLISessionsAlive: configuration.keepCLISessionsAlive)
                 let cli = await fetcher.debugRawProbe(model: "sonnet")
                 lines.append(cli)

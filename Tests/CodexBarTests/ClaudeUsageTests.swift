@@ -40,11 +40,11 @@ struct ClaudeUsageTests {
         let data = Data(json.utf8)
         let snap = ClaudeUsageFetcher.parse(json: data)
         #expect(snap != nil)
-        #expect(snap?.primary.usedPercent == 1)
-        #expect(snap?.primary.windowMinutes == 300)
+        #expect(snap?.primary?.usedPercent == 1)
+        #expect(snap?.primary?.windowMinutes == 300)
         #expect(snap?.secondary?.usedPercent == 8)
         #expect(snap?.secondary?.windowMinutes == 10080)
-        #expect(snap?.primary.resetDescription == "11am (Europe/Vienna)")
+        #expect(snap?.primary?.resetDescription == "11am (Europe/Vienna)")
     }
 
     @Test
@@ -99,7 +99,7 @@ struct ClaudeUsageTests {
 
         #expect(await loadCounter.current() == 2)
         #expect(await delegatedCounter.current() == 1)
-        #expect(snapshot.primary.usedPercent == 7)
+        #expect(snapshot.primary?.usedPercent == 7)
         #expect(snapshot.secondary?.usedPercent == 21)
     }
 
@@ -268,7 +268,7 @@ struct ClaudeUsageTests {
 
         #expect(await loadCounter.current() == 2)
         #expect(await delegatedCounter.current() == 1)
-        #expect(snapshot.primary.usedPercent == 7)
+        #expect(snapshot.primary?.usedPercent == 7)
 
         // User-initiated repair: if the delegated refresh couldn't sync silently, we may allow an interactive prompt
         // on the retry to help recovery.
@@ -442,7 +442,7 @@ struct ClaudeUsageTests {
 
         #expect(flags.allowKeychainPromptFlags == [true])
         #expect(flags.allowBackgroundPromptBootstrapFlags == [true])
-        #expect(snapshot.primary.usedPercent == 7)
+        #expect(snapshot.primary?.usedPercent == 7)
     }
 
     @Test
@@ -502,7 +502,7 @@ struct ClaudeUsageTests {
 
         #expect(await loadCounter.current() == 2)
         #expect(await delegatedCounter.current() == 1)
-        #expect(snapshot.primary.usedPercent == 7)
+        #expect(snapshot.primary?.usedPercent == 7)
         #expect(flags.allowKeychainPromptFlags.allSatisfy { !$0 })
     }
 
@@ -517,7 +517,7 @@ struct ClaudeUsageTests {
         let data = Data(json.utf8)
         let snap = ClaudeUsageFetcher.parse(json: data)
         #expect(snap != nil)
-        #expect(snap?.primary.usedPercent == 4)
+        #expect(snap?.primary?.usedPercent == 4)
         #expect(snap?.secondary == nil)
     }
 
@@ -603,12 +603,12 @@ struct ClaudeUsageTests {
             print(
                 """
                 Live Claude usage (PTY):
-                session used \(snap.primary.usedPercent)%
+                session used \(snap.primary?.usedPercent ?? -1)%
                 week used \(weeklyUsed)% 
                 opus \(opusUsed)% 
                 email \(email) org \(org)
                 """)
-            #expect(snap.primary.usedPercent >= 0)
+            #expect((snap.primary?.usedPercent ?? -1) >= 0)
         } catch {
             // Dump raw CLI text captured via `script` to help debug.
             let raw = try Self.captureClaudeUsageRaw(timeout: 15)
@@ -658,12 +658,12 @@ struct ClaudeUsageTests {
         print(
             """
             Live Claude usage (Web API):
-            session used \(snap.primary.usedPercent)%
+            session used \(snap.primary?.usedPercent ?? -1)%
             week used \(weeklyUsed)%
             opus \(opusUsed)%
             login method: \(snap.loginMethod ?? "nil")
             """)
-        #expect(snap.primary.usedPercent >= 0)
+        #expect((snap.primary?.usedPercent ?? -1) >= 0)
     }
 
     @Test
@@ -703,6 +703,83 @@ struct ClaudeUsageTests {
         let parsed = try ClaudeWebAPIFetcher._parseUsageResponseForTesting(data)
         #expect(parsed.sessionPercentUsed == 9)
         #expect(parsed.weeklyPercentUsed == nil)
+    }
+
+    @Test
+    func `parses claude web API enterprise response with wrapped decimal usage`() throws {
+        let json = """
+        {
+          "usage": {
+            "five_hour": { "utilization": 9.5, "resets_at": "2025-12-23T16:00:00.000Z" },
+            "seven_day": { "utilization": "4.25", "resets_at": "2025-12-29T23:00:00.000Z" },
+            "seven_day_sonnet": { "utilization": "1.5" }
+          }
+        }
+        """
+        let data = Data(json.utf8)
+        let parsed = try ClaudeWebAPIFetcher._parseUsageResponseForTesting(data)
+        #expect(parsed.sessionPercentUsed == 9.5)
+        #expect(parsed.weeklyPercentUsed == 4.25)
+        #expect(parsed.opusPercentUsed == 1.5)
+        #expect(parsed.sessionResetsAt != nil)
+        #expect(parsed.weeklyResetsAt != nil)
+    }
+
+    @Test
+    func `parses claude web API enterprise response with deeply nested usage`() throws {
+        let json = """
+        {
+          "organization": {
+            "usage_payload": {
+              "limits": {
+                "five_hour": {
+                  "percentage": "9.5",
+                  "next_reset_at": "2025-12-23T16:00:00.000Z"
+                },
+                "seven_day": {
+                  "percent_used": 4.25,
+                  "next_reset_at": "2025-12-29T23:00:00.000Z"
+                },
+                "seven_day_sonnet": {
+                  "percentage": 1.5
+                }
+              }
+            }
+          }
+        }
+        """
+        let data = Data(json.utf8)
+        let parsed = try ClaudeWebAPIFetcher._parseUsageResponseForTesting(data)
+        #expect(parsed.sessionPercentUsed == 9.5)
+        #expect(parsed.weeklyPercentUsed == 4.25)
+        #expect(parsed.opusPercentUsed == 1.5)
+        #expect(parsed.sessionResetsAt != nil)
+        #expect(parsed.weeklyResetsAt != nil)
+    }
+
+    @Test
+    func `parses claude web API enterprise response with extra usage only`() throws {
+        let json = """
+        {
+          "five_hour": null,
+          "seven_day": null,
+          "seven_day_opus": null,
+          "extra_usage": {
+            "is_enabled": true,
+            "monthly_limit": 100000,
+            "used_credits": 2604.0,
+            "utilization": 2.604
+          }
+        }
+        """
+        let data = Data(json.utf8)
+        let parsed = try ClaudeWebAPIFetcher._parseUsageResponseForTesting(data)
+        #expect(parsed.sessionPercentUsed == nil)
+        #expect(parsed.weeklyPercentUsed == nil)
+        #expect(parsed.opusPercentUsed == nil)
+        #expect(parsed.extraUsageCost?.currencyCode == "USD")
+        #expect(parsed.extraUsageCost?.limit == 1000)
+        #expect(parsed.extraUsageCost?.used == 26.04)
     }
 
     @Test
@@ -780,6 +857,22 @@ struct ClaudeUsageTests {
         let org = try ClaudeWebAPIFetcher._parseOrganizationsResponseForTesting(data)
         #expect(org.id == "org-hybrid")
         #expect(org.name == "Hybrid Org")
+    }
+
+    @Test
+    func `parses claude web API organizations respects preferred org`() throws {
+        let json = """
+        [
+          { "uuid": "org-team", "name": "Team Org", "capabilities": ["chat"] },
+          { "uuid": "org-enterprise", "name": "Enterprise Org", "capabilities": ["chat"] }
+        ]
+        """
+        let data = Data(json.utf8)
+        let org = try ClaudeWebAPIFetcher._parseOrganizationsResponseForTesting(
+            data,
+            preferredOrganizationID: "org-enterprise")
+        #expect(org.id == "org-enterprise")
+        #expect(org.name == "Enterprise Org")
     }
 
     @Test
@@ -1061,7 +1154,7 @@ struct ClaudeAutoFetcherCharacterizationTests {
                         try await fetcher.loadLatestUsage(model: "sonnet")
                     })
 
-                #expect(snapshot.primary.usedPercent == 7)
+                #expect(snapshot.primary?.usedPercent == 7)
                 #expect(snapshot.secondary?.usedPercent == 21)
                 #expect(log.contents().isEmpty)
                 let requests = webRequests.current()
@@ -1201,7 +1294,7 @@ struct ClaudeAutoFetcherCharacterizationTests {
                 }, operation: {
                     let snapshot = try await fetcher.loadLatestUsage(model: "sonnet")
 
-                    #expect(snapshot.primary.usedPercent == 11)
+                    #expect(snapshot.primary?.usedPercent == 11)
                     #expect(snapshot.secondary?.usedPercent == 22)
                     #expect(snapshot.opus?.usedPercent == 33)
                     #expect(snapshot.accountEmail == "web@example.com")
@@ -1210,6 +1303,87 @@ struct ClaudeAutoFetcherCharacterizationTests {
                 })
             }
         }
+    }
+
+    @Test
+    func `web source accepts enterprise extra usage only response`() async throws {
+        let webRequests = RequestLog()
+        let fetcher = ClaudeUsageFetcher(
+            browserDetection: BrowserDetection(cacheTTL: 0),
+            runtime: .app,
+            dataSource: .web,
+            manualCookieHeader: "sessionKey=sk-ant-session-token",
+            preferredOrganizationID: "org-enterprise")
+
+        try await self.withClaudeWebStub(handler: { request in
+            let url = try #require(request.url)
+            webRequests.append(url.path)
+            switch url.path {
+            case "/api/organizations":
+                return Self.makeJSONResponse(
+                    url: url,
+                    body: #"""
+                    [
+                      { "uuid": "org-team", "name": "Team Org", "capabilities": ["chat"] },
+                      { "uuid": "org-enterprise", "name": "Enterprise Org", "capabilities": ["chat"] }
+                    ]
+                    """#)
+            case "/api/organizations/org-enterprise/usage":
+                let body = """
+                {
+                  "five_hour": null,
+                  "seven_day": null,
+                  "seven_day_oauth_apps": null,
+                  "seven_day_opus": null,
+                  "seven_day_sonnet": null,
+                  "extra_usage": {
+                    "is_enabled": true,
+                    "monthly_limit": 100000,
+                    "used_credits": 2604.0,
+                    "utilization": 2.604
+                  }
+                }
+                """
+                return Self.makeJSONResponse(url: url, body: body)
+            case "/api/account":
+                let body = """
+                {
+                  "email_address": "enterprise@example.com",
+                  "memberships": [
+                    {
+                      "organization": {
+                        "uuid": "org-enterprise",
+                        "name": "Enterprise Org",
+                        "rate_limit_tier": "claude_enterprise",
+                        "billing_type": "invoice"
+                      }
+                    }
+                  ]
+                }
+                """
+                return Self.makeJSONResponse(url: url, body: body)
+            default:
+                return Self.makeJSONResponse(url: url, body: "{}", statusCode: 404)
+            }
+        }, operation: {
+            let snapshot = try await fetcher.loadLatestUsage(model: "sonnet")
+
+            #expect(snapshot.primary == nil)
+            #expect(snapshot.secondary == nil)
+            #expect(snapshot.opus == nil)
+            #expect(snapshot.providerCost?.currencyCode == "USD")
+            #expect(snapshot.providerCost?.limit == 1000)
+            #expect(snapshot.providerCost?.used == 26.04)
+            #expect(snapshot.accountEmail == "enterprise@example.com")
+            #expect(snapshot.accountOrganization == "Enterprise Org")
+            #expect(snapshot.loginMethod == "Claude Enterprise")
+
+            let requests = webRequests.current()
+            #expect(requests.contains("/api/organizations"))
+            #expect(requests.contains("/api/organizations/org-enterprise/usage"))
+            #expect(requests.contains("/api/account"))
+            #expect(!requests.contains("/api/organizations/org-enterprise/overage_spend_limit"))
+        })
     }
 
     @Test
@@ -1350,7 +1524,7 @@ extension ClaudeUsageTests {
 
         #expect(await loadCounter.current() == 2)
         #expect(await delegatedCounter.current() == 1)
-        #expect(snapshot.primary.usedPercent == 7)
+        #expect(snapshot.primary?.usedPercent == 7)
     }
 
     @Test

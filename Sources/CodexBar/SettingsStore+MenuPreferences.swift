@@ -9,7 +9,7 @@ extension SettingsStore {
             switch preference {
             case .automatic, .primary:
                 return preference
-            case .secondary, .average, .tertiary:
+            case .secondary, .average, .tertiary, .providerCost:
                 return .automatic
             }
         }
@@ -21,6 +21,9 @@ extension SettingsStore {
         if preference == .tertiary, !self.menuBarMetricSupportsTertiary(for: provider) {
             return .automatic
         }
+        if preference == .providerCost, !self.menuBarMetricSupportsProviderCost(for: provider) {
+            return .automatic
+        }
         return preference
     }
 
@@ -29,12 +32,20 @@ extension SettingsStore {
             switch preference {
             case .automatic, .primary:
                 self.menuBarMetricPreferencesRaw[provider.rawValue] = preference.rawValue
-            case .secondary, .average, .tertiary:
+            case .secondary, .average, .tertiary, .providerCost:
                 self.menuBarMetricPreferencesRaw[provider.rawValue] = MenuBarMetricPreference.automatic.rawValue
             }
             return
         }
         if preference == .tertiary, !self.menuBarMetricSupportsTertiary(for: provider) {
+            self.menuBarMetricPreferencesRaw[provider.rawValue] = MenuBarMetricPreference.automatic.rawValue
+            return
+        }
+        if preference == .average, !self.menuBarMetricSupportsAverage(for: provider) {
+            self.menuBarMetricPreferencesRaw[provider.rawValue] = MenuBarMetricPreference.automatic.rawValue
+            return
+        }
+        if preference == .providerCost, !self.menuBarMetricSupportsProviderCost(for: provider) {
             self.menuBarMetricPreferencesRaw[provider.rawValue] = MenuBarMetricPreference.automatic.rawValue
             return
         }
@@ -64,6 +75,10 @@ extension SettingsStore {
             return .automatic
         }
         return preference
+    }
+
+    func menuBarMetricSupportsProviderCost(for provider: UsageProvider) -> Bool {
+        provider == .claude
     }
 
     func isCostUsageEffectivelyEnabled(for provider: UsageProvider) -> Bool {

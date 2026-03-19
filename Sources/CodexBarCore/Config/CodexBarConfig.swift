@@ -80,6 +80,7 @@ public struct ProviderConfig: Codable, Sendable, Identifiable {
     public var apiKey: String?
     public var cookieHeader: String?
     public var cookieSource: ProviderCookieSource?
+    public var organizationID: String?
     public var region: String?
     public var workspaceID: String?
     public var tokenAccounts: ProviderTokenAccountData?
@@ -93,6 +94,7 @@ public struct ProviderConfig: Codable, Sendable, Identifiable {
         apiKey: String? = nil,
         cookieHeader: String? = nil,
         cookieSource: ProviderCookieSource? = nil,
+        organizationID: String? = nil,
         region: String? = nil,
         workspaceID: String? = nil,
         tokenAccounts: ProviderTokenAccountData? = nil,
@@ -105,6 +107,7 @@ public struct ProviderConfig: Codable, Sendable, Identifiable {
         self.apiKey = apiKey
         self.cookieHeader = cookieHeader
         self.cookieSource = cookieSource
+        self.organizationID = organizationID
         self.region = region
         self.workspaceID = workspaceID
         self.tokenAccounts = tokenAccounts
@@ -117,6 +120,10 @@ public struct ProviderConfig: Codable, Sendable, Identifiable {
 
     public var sanitizedCookieHeader: String? {
         Self.clean(self.cookieHeader)
+    }
+
+    public var sanitizedOrganizationID: String? {
+        Self.clean(self.organizationID)
     }
 
     private static func clean(_ raw: String?) -> String? {

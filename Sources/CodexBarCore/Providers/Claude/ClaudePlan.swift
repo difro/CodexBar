@@ -39,10 +39,8 @@ public enum ClaudePlan: String, CaseIterable, Sendable {
 
     public var countsAsSubscription: Bool {
         switch self {
-        case .max, .pro, .team, .ultra:
+        case .max, .pro, .team, .enterprise, .ultra:
             true
-        case .enterprise:
-            false
         }
     }
 

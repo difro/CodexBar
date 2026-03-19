@@ -73,11 +73,12 @@ struct ClaudeOAuthTests {
         let snap = try ClaudeUsageFetcher._mapOAuthUsageForTesting(
             Data(json.utf8),
             rateLimitTier: "claude_pro")
-        #expect(snap.primary.usedPercent == 12.5)
-        #expect(snap.primary.windowMinutes == 300)
+        let primary = try #require(snap.primary)
+        #expect(primary.usedPercent == 12.5)
+        #expect(primary.windowMinutes == 300)
         #expect(snap.secondary?.usedPercent == 30)
         #expect(snap.opus?.usedPercent == 5)
-        #expect(snap.primary.resetsAt != nil)
+        #expect(primary.resetsAt != nil)
         #expect(snap.loginMethod == "Claude Pro")
     }
 

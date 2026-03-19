@@ -76,17 +76,20 @@ public struct ProviderSettingsSnapshot: Sendable {
         public let webExtrasEnabled: Bool
         public let cookieSource: ProviderCookieSource
         public let manualCookieHeader: String?
+        public let preferredOrganizationID: String?
 
         public init(
             usageDataSource: ClaudeUsageDataSource,
             webExtrasEnabled: Bool,
             cookieSource: ProviderCookieSource,
-            manualCookieHeader: String?)
+            manualCookieHeader: String?,
+            preferredOrganizationID: String? = nil)
         {
             self.usageDataSource = usageDataSource
             self.webExtrasEnabled = webExtrasEnabled
             self.cookieSource = cookieSource
             self.manualCookieHeader = manualCookieHeader
+            self.preferredOrganizationID = preferredOrganizationID
         }
     }
 

@@ -45,6 +45,45 @@ struct BrowserDetectionTests {
     }
 
     @Test
+    func `browser cookie gate clear denied removes cooldown`() {
+        BrowserCookieAccessGate.resetForTesting()
+
+        let now = Date(timeIntervalSince1970: 1_763_894_400)
+        BrowserCookieAccessGate.recordDenied(for: .chrome, now: now)
+
+        #expect(BrowserCookieAccessGate.blockedUntil(for: .chrome, now: now) != nil)
+        #expect(BrowserCookieAccessGate.clearDenied(for: .chrome))
+        #expect(BrowserCookieAccessGate.blockedUntil(for: .chrome, now: now) == nil)
+    }
+
+    @Test
+    func `browser cookie gate allows user initiated keychain prompt`() async throws {
+        BrowserCookieAccessGate.resetForTesting()
+
+        try await KeychainAccessPreflight.withCheckGenericPasswordOverrideForTesting({ _, _ in .interactionRequired }) {
+            await ProviderInteractionContext.$current.withValue(.userInitiated) {
+                #expect(BrowserCookieAccessGate.shouldAttempt(.chrome))
+            }
+        }
+    }
+
+    @Test
+    func `browser cookie gate clears cooldown for user initiated retry`() async throws {
+        BrowserCookieAccessGate.resetForTesting()
+
+        let now = Date(timeIntervalSince1970: 1_763_894_400)
+        BrowserCookieAccessGate.recordDenied(for: .chrome, now: now)
+
+        try await KeychainAccessPreflight.withCheckGenericPasswordOverrideForTesting({ _, _ in .interactionRequired }) {
+            await ProviderInteractionContext.$current.withValue(.userInitiated) {
+                #expect(BrowserCookieAccessGate.shouldAttempt(.chrome, now: now.addingTimeInterval(1)))
+            }
+        }
+
+        #expect(BrowserCookieAccessGate.blockedUntil(for: .chrome, now: now.addingTimeInterval(1)) == nil)
+    }
+
+    @Test
     func `chrome requires profile data`() throws {
         let temp = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         try FileManager.default.createDirectory(at: temp, withIntermediateDirectories: true)

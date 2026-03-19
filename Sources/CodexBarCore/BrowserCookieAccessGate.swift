@@ -22,13 +22,25 @@ public enum BrowserCookieAccessGate {
             self.loadIfNeeded(&state)
             if let blockedUntil = state.deniedUntilByBrowser[browser.rawValue] {
                 if blockedUntil > now {
-                    self.log.debug(
-                        "Cookie access blocked",
-                        metadata: ["browser": browser.displayName, "until": "\(blockedUntil.timeIntervalSince1970)"])
-                    return false
+                    if ProviderInteractionContext.current == .userInitiated {
+                        state.deniedUntilByBrowser.removeValue(forKey: browser.rawValue)
+                        self.persist(state)
+                        self.log.info(
+                            "Cleared browser cookie cooldown due to user action",
+                            metadata: ["browser": browser.displayName])
+                    } else {
+                        self.log.debug(
+                            "Cookie access blocked",
+                            metadata: [
+                                "browser": browser.displayName,
+                                "until": "\(blockedUntil.timeIntervalSince1970)",
+                            ])
+                        return false
+                    }
+                } else {
+                    state.deniedUntilByBrowser.removeValue(forKey: browser.rawValue)
+                    self.persist(state)
                 }
-                state.deniedUntilByBrowser.removeValue(forKey: browser.rawValue)
-                self.persist(state)
             }
             return true
         }
@@ -38,6 +50,12 @@ public enum BrowserCookieAccessGate {
         return self.lock.withLock { state in
             self.loadIfNeeded(&state)
             if requiresInteraction {
+                if ProviderInteractionContext.current == .userInitiated {
+                    self.log.info(
+                        "Cookie access requires keychain interaction; allowing due to user action",
+                        metadata: ["browser": browser.displayName])
+                    return true
+                }
                 state.deniedUntilByBrowser[browser.rawValue] = now.addingTimeInterval(self.cooldownInterval)
                 self.persist(state)
                 self.log.info(
@@ -71,6 +89,37 @@ public enum BrowserCookieAccessGate {
                     "browser": browser.displayName,
                     "until": "\(blockedUntil.timeIntervalSince1970)",
                 ])
+    }
+
+    public static func blockedUntil(for browser: Browser, now: Date = Date()) -> Date? {
+        self.lock.withLock { state in
+            self.loadIfNeeded(&state)
+            guard let blockedUntil = state.deniedUntilByBrowser[browser.rawValue] else { return nil }
+            if blockedUntil > now {
+                return blockedUntil
+            }
+            state.deniedUntilByBrowser.removeValue(forKey: browser.rawValue)
+            self.persist(state)
+            return nil
+        }
+    }
+
+    @discardableResult
+    public static func clearDenied(for browser: Browser? = nil) -> Bool {
+        self.lock.withLock { state in
+            self.loadIfNeeded(&state)
+            let changed: Bool
+            if let browser {
+                changed = state.deniedUntilByBrowser.removeValue(forKey: browser.rawValue) != nil
+            } else {
+                changed = !state.deniedUntilByBrowser.isEmpty
+                state.deniedUntilByBrowser.removeAll()
+            }
+            if changed {
+                self.persist(state)
+            }
+            return changed
+        }
     }
 
     public static func resetForTesting() {

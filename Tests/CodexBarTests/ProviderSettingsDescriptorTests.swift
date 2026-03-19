@@ -212,6 +212,7 @@ struct ProviderSettingsDescriptorTests {
             requestConfirmation: { _ in })
         let pickers = ClaudeProviderImplementation().settingsPickers(context: context)
         #expect(pickers.contains(where: { $0.id == "claude-usage-source" }))
+        #expect(pickers.contains(where: { $0.id == "claude-organization" }))
         #expect(pickers.contains(where: { $0.id == "claude-cookie-source" }))
         let keychainPicker = try #require(pickers.first(where: { $0.id == "claude-keychain-prompt-policy" }))
         let optionIDs = Set(keychainPicker.options.map(\.id))
@@ -219,6 +220,179 @@ struct ProviderSettingsDescriptorTests {
         #expect(optionIDs.contains(ClaudeOAuthKeychainPromptMode.onlyOnUserAction.rawValue))
         #expect(optionIDs.contains(ClaudeOAuthKeychainPromptMode.always.rawValue))
         #expect(keychainPicker.isEnabled?() ?? true)
+    }
+
+    @Test
+    func `claude organization picker lists discovered orgs and keeps configured fallback`() throws {
+        let suite = "ProviderSettingsDescriptorTests-claude-organization-picker"
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defaults.removePersistentDomain(forName: suite)
+        let configStore = testConfigStore(suiteName: suite)
+        let settings = SettingsStore(
+            userDefaults: defaults,
+            configStore: configStore,
+            zaiTokenStore: NoopZaiTokenStore(),
+            syntheticTokenStore: NoopSyntheticTokenStore())
+        settings.claudeUsageDataSource = .web
+        settings.claudePreferredOrganizationID = "org-missing"
+        settings.claudeDiscoveredOrganizations = [
+            ClaudeOrganizationChoice(id: "org-team", name: "Team Org"),
+            ClaudeOrganizationChoice(id: "org-enterprise", name: "Enterprise Org"),
+        ]
+
+        let store = UsageStore(
+            fetcher: UsageFetcher(environment: [:]),
+            browserDetection: BrowserDetection(cacheTTL: 0),
+            settings: settings)
+
+        let context = ProviderSettingsContext(
+            provider: .claude,
+            settings: settings,
+            store: store,
+            boolBinding: { keyPath in
+                Binding(
+                    get: { settings[keyPath: keyPath] },
+                    set: { settings[keyPath: keyPath] = $0 })
+            },
+            stringBinding: { keyPath in
+                Binding(
+                    get: { settings[keyPath: keyPath] },
+                    set: { settings[keyPath: keyPath] = $0 })
+            },
+            statusText: { _ in nil },
+            setStatusText: { _, _ in },
+            lastAppActiveRunAt: { _ in nil },
+            setLastAppActiveRunAt: { _, _ in },
+            requestConfirmation: { _ in })
+
+        let pickers = ClaudeProviderImplementation().settingsPickers(context: context)
+        let organizationPicker = try #require(pickers.first(where: { $0.id == "claude-organization" }))
+        let optionIDs = organizationPicker.options.map(\.id)
+        #expect(optionIDs == ["", "org-team", "org-enterprise", "org-missing"])
+        #expect(organizationPicker.isEnabled?() == true)
+        let subtitle = organizationPicker.dynamicSubtitle?() ?? ""
+        #expect(subtitle.localizedCaseInsensitiveContains("saved organization"))
+    }
+
+    @Test
+    func `claude organization picker empty state describes background discovery`() throws {
+        let suite = "ProviderSettingsDescriptorTests-claude-organization-empty"
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defaults.removePersistentDomain(forName: suite)
+        let configStore = testConfigStore(suiteName: suite)
+        let settings = SettingsStore(
+            userDefaults: defaults,
+            configStore: configStore,
+            zaiTokenStore: NoopZaiTokenStore(),
+            syntheticTokenStore: NoopSyntheticTokenStore())
+        settings.claudeUsageDataSource = .web
+        let store = UsageStore(
+            fetcher: UsageFetcher(environment: [:]),
+            browserDetection: BrowserDetection(cacheTTL: 0),
+            settings: settings)
+
+        let context = ProviderSettingsContext(
+            provider: .claude,
+            settings: settings,
+            store: store,
+            boolBinding: { keyPath in
+                Binding(
+                    get: { settings[keyPath: keyPath] },
+                    set: { settings[keyPath: keyPath] = $0 })
+            },
+            stringBinding: { keyPath in
+                Binding(
+                    get: { settings[keyPath: keyPath] },
+                    set: { settings[keyPath: keyPath] = $0 })
+            },
+            statusText: { _ in nil },
+            setStatusText: { _, _ in },
+            lastAppActiveRunAt: { _ in nil },
+            setLastAppActiveRunAt: { _, _ in },
+            requestConfirmation: { _ in })
+
+        let pickers = ClaudeProviderImplementation().settingsPickers(context: context)
+        let organizationPicker = try #require(pickers.first(where: { $0.id == "claude-organization" }))
+        let subtitle = organizationPicker.dynamicSubtitle?() ?? ""
+        #expect(subtitle.localizedCaseInsensitiveContains("discover"))
+        #expect(subtitle.localizedCaseInsensitiveContains("refresh"))
+    }
+
+    @Test
+    func `claude organization picker is disabled unless usage source is web`() throws {
+        let suite = "ProviderSettingsDescriptorTests-claude-organization-disabled"
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defaults.removePersistentDomain(forName: suite)
+        let configStore = testConfigStore(suiteName: suite)
+        let settings = SettingsStore(
+            userDefaults: defaults,
+            configStore: configStore,
+            zaiTokenStore: NoopZaiTokenStore(),
+            syntheticTokenStore: NoopSyntheticTokenStore())
+        settings.claudeUsageDataSource = .auto
+        settings.claudeDiscoveredOrganizations = [
+            ClaudeOrganizationChoice(id: "org-enterprise", name: "Enterprise Org"),
+        ]
+
+        let store = UsageStore(
+            fetcher: UsageFetcher(environment: [:]),
+            browserDetection: BrowserDetection(cacheTTL: 0),
+            settings: settings)
+
+        let context = ProviderSettingsContext(
+            provider: .claude,
+            settings: settings,
+            store: store,
+            boolBinding: { keyPath in
+                Binding(
+                    get: { settings[keyPath: keyPath] },
+                    set: { settings[keyPath: keyPath] = $0 })
+            },
+            stringBinding: { keyPath in
+                Binding(
+                    get: { settings[keyPath: keyPath] },
+                    set: { settings[keyPath: keyPath] = $0 })
+            },
+            statusText: { _ in nil },
+            setStatusText: { _, _ in },
+            lastAppActiveRunAt: { _ in nil },
+            setLastAppActiveRunAt: { _, _ in },
+            requestConfirmation: { _ in })
+
+        let pickers = ClaudeProviderImplementation().settingsPickers(context: context)
+        let organizationPicker = try #require(pickers.first(where: { $0.id == "claude-organization" }))
+        #expect(organizationPicker.isEnabled?() == false)
+        let subtitle = organizationPicker.dynamicSubtitle?() ?? ""
+        #expect(subtitle.localizedCaseInsensitiveContains("usage source"))
+        #expect(subtitle.localizedCaseInsensitiveContains("web"))
+    }
+
+    @Test
+    func `claude discovered organizations persist across settings instances`() throws {
+        let suite = "ProviderSettingsDescriptorTests-claude-organization-persist"
+        let defaultsA = try #require(UserDefaults(suiteName: suite))
+        defaultsA.removePersistentDomain(forName: suite)
+        let configStore = testConfigStore(suiteName: suite)
+        let settingsA = SettingsStore(
+            userDefaults: defaultsA,
+            configStore: configStore,
+            zaiTokenStore: NoopZaiTokenStore(),
+            syntheticTokenStore: NoopSyntheticTokenStore())
+
+        settingsA.replaceClaudeDiscoveredOrganizations([
+            ClaudeWebAPIFetcher.OrganizationInfo(id: "org-team", name: "Team Org", capabilities: ["chat"]),
+            ClaudeWebAPIFetcher.OrganizationInfo(id: "org-enterprise", name: "Enterprise Org", capabilities: ["chat"]),
+        ])
+
+        let defaultsB = try #require(UserDefaults(suiteName: suite))
+        let settingsB = SettingsStore(
+            userDefaults: defaultsB,
+            configStore: configStore,
+            zaiTokenStore: NoopZaiTokenStore(),
+            syntheticTokenStore: NoopSyntheticTokenStore())
+
+        #expect(settingsB.claudeDiscoveredOrganizations.map(\.id) == ["org-team", "org-enterprise"])
+        #expect(settingsB.claudeDiscoveredOrganizations.map(\.displayName) == ["Team Org", "Enterprise Org"])
     }
 
     @Test

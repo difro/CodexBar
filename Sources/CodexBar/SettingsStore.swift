@@ -44,6 +44,7 @@ enum MenuBarMetricPreference: String, CaseIterable, Identifiable {
     case secondary
     case tertiary
     case average
+    case providerCost
 
     var id: String {
         self.rawValue
@@ -56,6 +57,7 @@ enum MenuBarMetricPreference: String, CaseIterable, Identifiable {
         case .secondary: "Secondary"
         case .tertiary: "Tertiary"
         case .average: "Average"
+        case .providerCost: "Provider Cost"
         }
     }
 }
@@ -79,10 +81,12 @@ final class SettingsStore {
     @ObservationIgnored var configPersistTask: Task<Void, Never>?
     @ObservationIgnored var configLoading = false
     @ObservationIgnored var tokenAccountsLoaded = false
+    @ObservationIgnored var claudeDiscoveredOrganizationsSourceKey: String?
     var defaultsState: SettingsDefaultsState
     var configRevision: Int = 0
     var providerOrder: [UsageProvider] = []
     var providerEnablement: [UsageProvider: Bool] = [:]
+    var claudeDiscoveredOrganizations: [ClaudeOrganizationChoice] = []
 
     static func shouldBridgeSharedDefaults(for userDefaults: UserDefaults) -> Bool {
         if !self.isRunningTests { return true }
@@ -151,6 +155,9 @@ final class SettingsStore {
         self.config = config
         self.configLoading = true
         self.defaultsState = Self.loadDefaultsState(userDefaults: userDefaults)
+        self.claudeDiscoveredOrganizations = Self.loadClaudeDiscoveredOrganizations(userDefaults: userDefaults)
+        self.claudeDiscoveredOrganizationsSourceKey =
+            Self.loadClaudeDiscoveredOrganizationsSourceKey(userDefaults: userDefaults)
         self.updateProviderState(config: config)
         self.configLoading = false
         CodexBarLog.setFileLoggingEnabled(self.debugFileLoggingEnabled)

@@ -26,6 +26,7 @@ struct ClaudeProviderImplementation: ProviderImplementation {
         _ = settings.claudeOAuthKeychainPromptMode
         _ = settings.claudeOAuthKeychainReadStrategy
         _ = settings.claudeWebExtrasEnabled
+        _ = settings.claudePreferredOrganizationID
     }
 
     @MainActor
@@ -110,9 +111,27 @@ struct ClaudeProviderImplementation: ProviderImplementation {
                 context.settings.claudeOAuthKeychainPromptMode = ClaudeOAuthKeychainPromptMode(rawValue: raw)
                     ?? .onlyOnUserAction
             })
+        let organizationBinding = Binding(
+            get: { context.settings.claudePreferredOrganizationID },
+            set: { raw in
+                context.settings.claudePreferredOrganizationID = raw
+            })
 
         let usageOptions = ClaudeUsageDataSource.allCases.map {
             ProviderSettingsPickerOption(id: $0.rawValue, title: $0.displayName)
+        }
+        let discoveredOrganizations = context.settings.claudeDiscoveredOrganizations
+        let preferredOrganizationID = context.settings.claudePreferredOrganizationID
+        var organizationOptions = [ProviderSettingsPickerOption(id: "", title: "Automatic")]
+        organizationOptions.append(contentsOf: discoveredOrganizations.map {
+            ProviderSettingsPickerOption(id: $0.id, title: $0.displayName)
+        })
+        if !preferredOrganizationID.isEmpty,
+           !discoveredOrganizations.contains(where: { $0.id == preferredOrganizationID })
+        {
+            organizationOptions.append(ProviderSettingsPickerOption(
+                id: preferredOrganizationID,
+                title: "Configured: \(preferredOrganizationID)"))
         }
         let cookieOptions = ProviderCookieSourceUI.options(
             allowsOff: false,
@@ -136,12 +155,38 @@ struct ClaudeProviderImplementation: ProviderImplementation {
                 manual: "Paste a Cookie header from a claude.ai request.",
                 off: "Claude cookies are disabled.")
         }
+        let organizationSubtitle: () -> String? = {
+            if context.settings.claudeUsageDataSource != .web {
+                return "Available only when Usage source is set to Web."
+            }
+            if discoveredOrganizations.isEmpty {
+                return "Automatic uses Claude's default chat-capable organization. CodexBar discovers available organizations from Claude Web when Claude settings open or Claude refresh runs."
+            }
+            if !preferredOrganizationID.isEmpty,
+               !discoveredOrganizations.contains(where: { $0.id == preferredOrganizationID })
+            {
+                return "The saved organization is not in the last discovered list. CodexBar will fall back to automatic selection until it reappears."
+            }
+            return "Choose which Claude organization the web fetcher should use. Automatic keeps Claude's default selection. This applies to Claude Web fetches; choose Usage source Web to force it."
+        }
         let keychainPromptPolicySubtitle: () -> String? = {
             if context.settings.debugDisableKeychainAccess {
                 return "Global Keychain access is disabled in Advanced, so this setting is currently inactive."
             }
             return "Controls Claude OAuth Keychain prompts when the standard reader is active. Choosing " +
                 "\"Never prompt\" can make OAuth unavailable; use Web/CLI when needed."
+        }
+        let organizationTrailingText: () -> String? = {
+            guard let snapshot = context.store.snapshot(for: .claude) else { return nil }
+            let organization = snapshot.accountOrganization(for: .claude)?
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            let loginMethod = snapshot.loginMethod(for: .claude)?
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            let parts = [organization, loginMethod].compactMap { value -> String? in
+                guard let value, !value.isEmpty else { return nil }
+                return value
+            }
+            return parts.isEmpty ? nil : parts.joined(separator: " • ")
         }
 
         return [
@@ -158,6 +203,17 @@ struct ClaudeProviderImplementation: ProviderImplementation {
                     let label = context.store.sourceLabel(for: .claude)
                     return label == "auto" ? nil : label
                 }),
+            ProviderSettingsPickerDescriptor(
+                id: "claude-organization",
+                title: "Organization",
+                subtitle: "Automatic uses Claude's default organization selection.",
+                dynamicSubtitle: organizationSubtitle,
+                binding: organizationBinding,
+                options: organizationOptions,
+                isVisible: nil,
+                isEnabled: { context.settings.claudeUsageDataSource == .web },
+                onChange: nil,
+                trailingText: organizationTrailingText),
             ProviderSettingsPickerDescriptor(
                 id: "claude-keychain-prompt-policy",
                 title: "Keychain prompt policy",

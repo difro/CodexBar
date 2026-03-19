@@ -204,6 +204,9 @@ final class UsageStore {
     @ObservationIgnored var lastKnownSessionWindowSource: [UsageProvider: SessionQuotaWindowSource] = [:]
     @ObservationIgnored var lastTokenFetchAt: [UsageProvider: Date] = [:]
     @ObservationIgnored var planUtilizationHistory: [UsageProvider: PlanUtilizationHistoryBuckets] = [:]
+    @ObservationIgnored var claudeOrganizationDiscoveryInFlight = false
+    @ObservationIgnored var claudeOrganizationDiscoveryPendingRefresh = false
+    @ObservationIgnored var claudeOrganizationDiscoveryRequestKey: String?
     @ObservationIgnored private var hasCompletedInitialRefresh: Bool = false
     @ObservationIgnored private let tokenFetchTTL: TimeInterval = 60 * 60
     @ObservationIgnored private let tokenFetchTimeout: TimeInterval = 10 * 60
@@ -906,7 +909,8 @@ extension UsageStore {
                 usageDataSource: fallbackUsageDataSource,
                 webExtrasEnabled: fallbackWebExtrasEnabled,
                 cookieSource: fallbackCookieSource,
-                manualCookieHeader: fallbackCookieHeader)
+                manualCookieHeader: fallbackCookieHeader,
+                preferredOrganizationID: nil)
             return ClaudeDebugLogConfiguration(
                 runtime: CodexBarCore.ProviderRuntime.app,
                 sourceMode: sourceMode,
@@ -915,6 +919,7 @@ extension UsageStore {
                 usageDataSource: claudeSettings.usageDataSource,
                 cookieSource: claudeSettings.cookieSource,
                 cookieHeader: claudeSettings.manualCookieHeader ?? "",
+                preferredOrganizationID: claudeSettings.preferredOrganizationID,
                 keepCLISessionsAlive: snapshot.debugKeepCLISessionsAlive)
         }
     }
