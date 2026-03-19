@@ -161,6 +161,60 @@ public enum ClaudeWebAPIFetcher {
 
     #if os(macOS)
 
+    public static func fetchOrganizations(
+        browserDetection: BrowserDetection,
+        logger: ((String) -> Void)? = nil) async throws -> [OrganizationInfo]
+    {
+        let log: (String) -> Void = { msg in logger?("[claude-web] \(msg)") }
+
+        if let cached = CookieHeaderCache.load(provider: .claude),
+           !cached.cookieHeader.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        {
+            log("Using cached cookie header from \(cached.sourceLabel)")
+            do {
+                return try await self.fetchOrganizations(cookieHeader: cached.cookieHeader, logger: log)
+            } catch let error as FetchError {
+                switch error {
+                case .unauthorized, .noSessionKeyFound, .invalidSessionKey:
+                    CookieHeaderCache.clear(provider: .claude)
+                default:
+                    throw error
+                }
+            } catch {
+                throw error
+            }
+        }
+
+        let sessionInfo = try extractSessionKeyInfo(browserDetection: browserDetection, logger: log)
+        log("Found session key (\(sessionInfo.cookieCount) cookies)")
+
+        let organizations = try await self.fetchOrganizations(using: sessionInfo, logger: log)
+        CookieHeaderCache.store(
+            provider: .claude,
+            cookieHeader: "sessionKey=\(sessionInfo.key)",
+            sourceLabel: sessionInfo.sourceLabel)
+        return organizations
+    }
+
+    public static func fetchOrganizations(
+        cookieHeader: String,
+        logger: ((String) -> Void)? = nil) async throws -> [OrganizationInfo]
+    {
+        let log: (String) -> Void = { msg in logger?("[claude-web] \(msg)") }
+        let sessionInfo = try self.sessionKeyInfo(cookieHeader: cookieHeader)
+        log("Using manual session key (\(sessionInfo.cookieCount) cookies)")
+        return try await self.fetchOrganizations(using: sessionInfo, logger: log)
+    }
+
+    public static func fetchOrganizations(
+        using sessionKeyInfo: SessionKeyInfo,
+        logger: ((String) -> Void)? = nil) async throws -> [OrganizationInfo]
+    {
+        let organizations = try await self.fetchOrganizations(sessionKey: sessionKeyInfo.key, logger: logger)
+        await self.organizationCache.store(organizations)
+        return organizations
+    }
+
     /// Attempts to fetch Claude usage data using cookies extracted from browsers.
     /// Tries browser cookies using the standard import order.
     public static func fetchUsage(

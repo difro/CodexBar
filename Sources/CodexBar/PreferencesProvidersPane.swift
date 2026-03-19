@@ -58,9 +58,14 @@ struct ProvidersPane: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
         .onAppear {
             self.ensureSelection()
+            self.maybeDiscoverOrganizations(for: self.selectedProvider ?? self.providers.first)
         }
         .onChange(of: self.providers) { _, _ in
             self.ensureSelection()
+            self.maybeDiscoverOrganizations(for: self.selectedProvider ?? self.providers.first)
+        }
+        .onChange(of: self.selectedProvider) { _, provider in
+            self.maybeDiscoverOrganizations(for: provider)
         }
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
             self.runSettingsDidBecomeActiveHooks()
@@ -97,6 +102,13 @@ struct ProvidersPane: View {
             return
         }
         self.selectedProvider = self.providers.first
+    }
+
+    private func maybeDiscoverOrganizations(for provider: UsageProvider?) {
+        guard provider == .claude else { return }
+        Task { @MainActor in
+            await self.store.refreshClaudeDiscoveredOrganizations()
+        }
     }
 
     func binding(for provider: UsageProvider) -> Binding<Bool> {

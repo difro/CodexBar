@@ -31,6 +31,12 @@ public enum BrowserCookieAccessGate {
                 self.persist(state)
             }
             if self.chromiumKeychainRequiresInteraction() {
+                if ProviderInteractionContext.current == .userInitiated {
+                    self.log.info(
+                        "Cookie access requires keychain interaction; allowing due to user action",
+                        metadata: ["browser": browser.displayName])
+                    return true
+                }
                 state.deniedUntilByBrowser[browser.rawValue] = now.addingTimeInterval(self.cooldownInterval)
                 self.persist(state)
                 self.log.info(
@@ -64,6 +70,37 @@ public enum BrowserCookieAccessGate {
                     "browser": browser.displayName,
                     "until": "\(blockedUntil.timeIntervalSince1970)",
                 ])
+    }
+
+    public static func blockedUntil(for browser: Browser, now: Date = Date()) -> Date? {
+        self.lock.withLock { state in
+            self.loadIfNeeded(&state)
+            guard let blockedUntil = state.deniedUntilByBrowser[browser.rawValue] else { return nil }
+            if blockedUntil > now {
+                return blockedUntil
+            }
+            state.deniedUntilByBrowser.removeValue(forKey: browser.rawValue)
+            self.persist(state)
+            return nil
+        }
+    }
+
+    @discardableResult
+    public static func clearDenied(for browser: Browser? = nil) -> Bool {
+        self.lock.withLock { state in
+            self.loadIfNeeded(&state)
+            let changed: Bool
+            if let browser {
+                changed = state.deniedUntilByBrowser.removeValue(forKey: browser.rawValue) != nil
+            } else {
+                changed = !state.deniedUntilByBrowser.isEmpty
+                state.deniedUntilByBrowser.removeAll()
+            }
+            if changed {
+                self.persist(state)
+            }
+            return changed
+        }
     }
 
     public static func resetForTesting() {

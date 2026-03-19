@@ -1,7 +1,7 @@
 import CodexBarCore
 import Foundation
 
-struct ClaudeOrganizationChoice: Identifiable, Equatable, Sendable {
+struct ClaudeOrganizationChoice: Codable, Identifiable, Equatable, Sendable {
     let id: String
     let name: String?
 
@@ -29,7 +29,23 @@ struct ClaudeOrganizationChoice: Identifiable, Equatable, Sendable {
     }
 }
 
+struct ClaudeOrganizationDiscoveryConfiguration: Sendable {
+    let manualCookieHeader: String?
+    let allowsBrowserCookies: Bool
+}
+
 extension SettingsStore {
+    fileprivate static let claudeDiscoveredOrganizationsDefaultsKey = "claudeDiscoveredOrganizations"
+
+    static func loadClaudeDiscoveredOrganizations(userDefaults: UserDefaults) -> [ClaudeOrganizationChoice] {
+        guard let data = userDefaults.data(forKey: claudeDiscoveredOrganizationsDefaultsKey) else { return [] }
+        guard let decoded = try? JSONDecoder().decode([ClaudeOrganizationChoice].self, from: data) else {
+            userDefaults.removeObject(forKey: Self.claudeDiscoveredOrganizationsDefaultsKey)
+            return []
+        }
+        return decoded
+    }
+
     var claudeUsageDataSource: ClaudeUsageDataSource {
         get {
             let source = self.configSnapshot.providerConfig(for: .claude)?.source
@@ -87,10 +103,50 @@ extension SettingsStore {
     }
 
     func replaceClaudeDiscoveredOrganizations(_ organizations: [ClaudeWebAPIFetcher.OrganizationInfo]) {
-        self.claudeDiscoveredOrganizations = ClaudeOrganizationChoice.makeChoices(from: organizations)
+        self.replaceClaudeDiscoveredOrganizations(ClaudeOrganizationChoice.makeChoices(from: organizations))
     }
 
     func ensureClaudeCookieLoaded() {}
+
+    func claudeOrganizationDiscoveryConfiguration() -> ClaudeOrganizationDiscoveryConfiguration {
+        if let account = self.selectedTokenAccount(for: .claude) {
+            switch ClaudeCredentialRouting.resolve(tokenAccountToken: account.token, manualCookieHeader: nil) {
+            case let .webCookie(header):
+                return ClaudeOrganizationDiscoveryConfiguration(
+                    manualCookieHeader: header,
+                    allowsBrowserCookies: false)
+            case .oauth, .none:
+                break
+            }
+        }
+
+        switch self.claudeCookieSource {
+        case .manual:
+            return ClaudeOrganizationDiscoveryConfiguration(
+                manualCookieHeader: CookieHeaderNormalizer.normalize(self.claudeCookieHeader),
+                allowsBrowserCookies: false)
+        case .auto:
+            return ClaudeOrganizationDiscoveryConfiguration(
+                manualCookieHeader: nil,
+                allowsBrowserCookies: true)
+        case .off:
+            return ClaudeOrganizationDiscoveryConfiguration(
+                manualCookieHeader: nil,
+                allowsBrowserCookies: false)
+        }
+    }
+
+    private func replaceClaudeDiscoveredOrganizations(_ organizations: [ClaudeOrganizationChoice]) {
+        let normalized = organizations
+        guard self.claudeDiscoveredOrganizations != normalized else { return }
+        self.claudeDiscoveredOrganizations = normalized
+        if normalized.isEmpty {
+            self.userDefaults.removeObject(forKey: Self.claudeDiscoveredOrganizationsDefaultsKey)
+            return
+        }
+        guard let data = try? JSONEncoder().encode(normalized) else { return }
+        self.userDefaults.set(data, forKey: Self.claudeDiscoveredOrganizationsDefaultsKey)
+    }
 }
 
 extension SettingsStore {

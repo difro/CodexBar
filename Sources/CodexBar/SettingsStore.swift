@@ -143,6 +143,7 @@ final class SettingsStore {
         self.config = config
         self.configLoading = true
         self.defaultsState = Self.loadDefaultsState(userDefaults: userDefaults)
+        self.claudeDiscoveredOrganizations = Self.loadClaudeDiscoveredOrganizations(userDefaults: userDefaults)
         self.updateProviderState(config: config)
         self.configLoading = false
         CodexBarLog.setFileLoggingEnabled(self.debugFileLoggingEnabled)

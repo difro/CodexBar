@@ -157,7 +157,7 @@ struct ClaudeProviderImplementation: ProviderImplementation {
         }
         let organizationSubtitle: () -> String? = {
             if discoveredOrganizations.isEmpty {
-                return "Automatic uses Claude's default chat-capable organization. Refresh Claude usage once to load available organizations."
+                return "Automatic uses Claude's default chat-capable organization. CodexBar discovers available organizations from Claude Web when Claude settings open or Claude refresh runs."
             }
             if !preferredOrganizationID.isEmpty,
                !discoveredOrganizations.contains(where: { $0.id == preferredOrganizationID })

@@ -95,6 +95,12 @@ extension UsageStore {
             if let delegatedCooldownSeconds {
                 lines.append("delegatedRefreshCooldownSeconds=\(delegatedCooldownSeconds)")
             }
+            if let blockedUntil = BrowserCookieAccessGate.blockedUntil(for: .chrome) {
+                lines.append("browserCookieGate.chromeBlockedUntil=\(blockedUntil)")
+            }
+            if let blockedUntil = BrowserCookieAccessGate.blockedUntil(for: .brave) {
+                lines.append("browserCookieGate.braveBlockedUntil=\(blockedUntil)")
+            }
             lines.append("hasClaudeBinary=\(hasClaudeBinary)")
             if strategy?.useWebExtras == true {
                 lines.append("web_extras=enabled")

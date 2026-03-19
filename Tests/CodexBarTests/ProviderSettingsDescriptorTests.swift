@@ -223,6 +223,77 @@ struct ProviderSettingsDescriptorTests {
     }
 
     @Test
+    func `claude organization picker empty state describes background discovery`() throws {
+        let suite = "ProviderSettingsDescriptorTests-claude-organization-empty"
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defaults.removePersistentDomain(forName: suite)
+        let configStore = testConfigStore(suiteName: suite)
+        let settings = SettingsStore(
+            userDefaults: defaults,
+            configStore: configStore,
+            zaiTokenStore: NoopZaiTokenStore(),
+            syntheticTokenStore: NoopSyntheticTokenStore())
+        let store = UsageStore(
+            fetcher: UsageFetcher(environment: [:]),
+            browserDetection: BrowserDetection(cacheTTL: 0),
+            settings: settings)
+
+        let context = ProviderSettingsContext(
+            provider: .claude,
+            settings: settings,
+            store: store,
+            boolBinding: { keyPath in
+                Binding(
+                    get: { settings[keyPath: keyPath] },
+                    set: { settings[keyPath: keyPath] = $0 })
+            },
+            stringBinding: { keyPath in
+                Binding(
+                    get: { settings[keyPath: keyPath] },
+                    set: { settings[keyPath: keyPath] = $0 })
+            },
+            statusText: { _ in nil },
+            setStatusText: { _, _ in },
+            lastAppActiveRunAt: { _ in nil },
+            setLastAppActiveRunAt: { _, _ in },
+            requestConfirmation: { _ in })
+
+        let pickers = ClaudeProviderImplementation().settingsPickers(context: context)
+        let organizationPicker = try #require(pickers.first(where: { $0.id == "claude-organization" }))
+        let subtitle = organizationPicker.dynamicSubtitle?() ?? ""
+        #expect(subtitle.localizedCaseInsensitiveContains("discover"))
+        #expect(subtitle.localizedCaseInsensitiveContains("refresh"))
+    }
+
+    @Test
+    func `claude discovered organizations persist across settings instances`() throws {
+        let suite = "ProviderSettingsDescriptorTests-claude-organization-persist"
+        let defaultsA = try #require(UserDefaults(suiteName: suite))
+        defaultsA.removePersistentDomain(forName: suite)
+        let configStore = testConfigStore(suiteName: suite)
+        let settingsA = SettingsStore(
+            userDefaults: defaultsA,
+            configStore: configStore,
+            zaiTokenStore: NoopZaiTokenStore(),
+            syntheticTokenStore: NoopSyntheticTokenStore())
+
+        settingsA.replaceClaudeDiscoveredOrganizations([
+            ClaudeWebAPIFetcher.OrganizationInfo(id: "org-team", name: "Team Org", capabilities: ["chat"]),
+            ClaudeWebAPIFetcher.OrganizationInfo(id: "org-enterprise", name: "Enterprise Org", capabilities: ["chat"]),
+        ])
+
+        let defaultsB = try #require(UserDefaults(suiteName: suite))
+        let settingsB = SettingsStore(
+            userDefaults: defaultsB,
+            configStore: configStore,
+            zaiTokenStore: NoopZaiTokenStore(),
+            syntheticTokenStore: NoopSyntheticTokenStore())
+
+        #expect(settingsB.claudeDiscoveredOrganizations.map(\.id) == ["org-team", "org-enterprise"])
+        #expect(settingsB.claudeDiscoveredOrganizations.map(\.displayName) == ["Team Org", "Enterprise Org"])
+    }
+
+    @Test
     func `claude prompt policy picker hidden when experimental reader selected`() throws {
         let suite = "ProviderSettingsDescriptorTests-claude-prompt-hidden-experimental"
         let defaults = try #require(UserDefaults(suiteName: suite))
