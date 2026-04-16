@@ -4,12 +4,15 @@ private struct MenuItemHighlightedKey: EnvironmentKey {
     static let defaultValue = false
 }
 
+// swiftformat:disable environmentEntry
 extension EnvironmentValues {
     var menuItemHighlighted: Bool {
         get { self[MenuItemHighlightedKey.self] }
         set { self[MenuItemHighlightedKey.self] = newValue }
     }
 }
+
+// swiftformat:enable environmentEntry
 
 enum MenuHighlightStyle {
     static let selectionText = Color(nsColor: .selectedMenuItemTextColor)
